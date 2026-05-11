@@ -1,4 +1,4 @@
-#include "grpo/cuda_check.cuh"
+#include "grpo/cuda_utils.cuh"
 
 #include <vector>
 #include <chrono>

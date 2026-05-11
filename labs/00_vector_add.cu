@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 
-#include "grpo/cuda_check.cuh"
+#include "grpo/cuda_utils.cuh"
 
 __global__ void vector_add_kernel(
     const float* a,
