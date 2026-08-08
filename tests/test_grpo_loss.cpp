@@ -1,5 +1,6 @@
 #include "grpo/grpo_loss.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -244,6 +245,72 @@ static void test_zero_advantage(){
     close(result.dlogp_new[0],0,0,0,"zero advantage gradient");
 }
 
+static float selected_logp(const std::vector<float>& logits, int row, int V, int selected){
+    float max_logit=logits[row*V];
+    for(int v=1;v<V;v++) max_logit=std::max(max_logit,logits[row*V+v]);
+    double sum=0;
+    for(int v=0;v<V;v++) sum+=std::exp(static_cast<double>(logits[row*V+v]-max_logit));
+    return logits[row*V+selected]-max_logit-static_cast<float>(std::log(sum));
+}
+
+static void test_logits_boundary(){
+    int B=1,G=2,T=2,V=4;
+    std::vector<float> logits={
+        1.0f,-0.5f,0.2f,0.8f,
+        0.3f,0.1f,-0.4f,0.7f,
+        -0.2f,0.5f,1.1f,0.0f,
+        1000.0f,999.0f,998.0f,997.0f
+    };
+    std::vector<int> selected={3,0,2,-1};
+    std::vector<int> mask={1,1,1,0};
+    std::vector<float> now(4,0.0f);
+    for(int i=0;i<3;i++) now[i]=selected_logp(logits,i,V,selected[i]);
+    std::vector<float> old={now[0]-0.1f,now[1]+0.05f,now[2]-0.03f,0};
+    std::vector<float> ref={now[0]+0.02f,now[1]-0.01f,now[2]+0.04f,0};
+    std::vector<float> advantages={0.7f,-0.4f};
+    grpo::LossConfig config;
+    config.beta=0.03f;
+
+    auto base=loss(now,old,ref,advantages,mask,B,G,T,config);
+    auto result=grpo::grpo_logits_cpu(
+        logits,old,ref,selected,advantages,mask,B,G,T,V,config
+    );
+    close(result.stats.loss,base.stats.loss,1e-7f,0,"logits loss");
+    close(result.stats.pg_loss,base.stats.pg_loss,1e-7f,0,"logits policy loss");
+    close(result.stats.kl,base.stats.kl,1e-7f,0,"logits KL");
+
+    for(int i=0;i<4;i++){
+        float row_sum=0;
+        for(int v=0;v<V;v++) row_sum+=result.dlogits[i*V+v];
+        close(row_sum,0,2e-7f,0,"logits gradient row sum");
+    }
+    for(int v=0;v<V;v++) close(result.dlogits[3*V+v],0,0,0,"masked logits gradient");
+
+    float h=1e-3f;
+    for(int i=0;i<3;i++){
+        for(int v=0;v<V;v++){
+            auto plus=logits,minus=logits;
+            plus[i*V+v]+=h;
+            minus[i*V+v]-=h;
+            float upper=grpo::grpo_logits_cpu(
+                plus,old,ref,selected,advantages,mask,B,G,T,V,config
+            ).stats.loss;
+            float lower=grpo::grpo_logits_cpu(
+                minus,old,ref,selected,advantages,mask,B,G,T,V,config
+            ).stats.loss;
+            close(result.dlogits[i*V+v],(upper-lower)/(2*h),2e-5f,4e-3f,"logits finite difference");
+        }
+    }
+
+    must_throw([&]{
+        grpo::grpo_logits_cpu(logits,old,ref,{4,0,2,-1},advantages,mask,B,G,T,V,config);
+    },"selected token outside vocabulary");
+    must_throw([&]{
+        auto bad=logits; bad[0]=std::numeric_limits<float>::infinity();
+        grpo::grpo_logits_cpu(bad,old,ref,selected,advantages,mask,B,G,T,V,config);
+    },"non-finite logits");
+}
+
 int main(){
     test_advantages();
     test_clipping();
@@ -252,5 +319,6 @@ int main(){
     test_finite_differences();
     test_bad_inputs();
     test_zero_advantage();
+    test_logits_boundary();
     std::cout << "test_grpo_loss passed\n";
 }

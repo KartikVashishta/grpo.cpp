@@ -37,6 +37,11 @@ namespace grpo {
         std::vector<float> dlogp_new;
     };
 
+    struct LogitsLossResult{
+        LossStats stats;
+        std::vector<float> dlogits;
+    };
+
     namespace detail {
         struct Shape{
             std::size_t sequences;
@@ -87,6 +92,20 @@ namespace grpo {
         int B,
         int G,
         int T,
+        LossConfig config={}
+    );
+
+    LogitsLossResult grpo_logits_cpu(
+        const std::vector<float>& logits_new,
+        const std::vector<float>& logp_old,
+        const std::vector<float>& logp_ref,
+        const std::vector<int>& selected_tokens,
+        const std::vector<float>& advantages,
+        const std::vector<int>& mask,
+        int B,
+        int G,
+        int T,
+        int V,
         LossConfig config={}
     );
 }

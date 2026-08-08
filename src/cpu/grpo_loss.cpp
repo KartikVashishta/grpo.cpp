@@ -172,4 +172,69 @@ namespace grpo {
         }
         return result;
     }
+
+    LogitsLossResult grpo_logits_cpu(
+        const std::vector<float>& logits_new,
+        const std::vector<float>& logp_old,
+        const std::vector<float>& logp_ref,
+        const std::vector<int>& selected_tokens,
+        const std::vector<float>& advantages,
+        const std::vector<int>& mask,
+        int B,
+        int G,
+        int T,
+        int V,
+        LossConfig config
+    ){
+        auto shape=detail::checked_shape(B,G,T);
+        if(V<=0) throw std::runtime_error("V must be positive");
+        auto vocab=static_cast<size_t>(V);
+        if(shape.tokens>std::numeric_limits<size_t>::max()/vocab)
+            throw std::runtime_error("logits count is too large");
+        size_t n_logits=shape.tokens*vocab;
+        expect_size("logits_new",logits_new.size(),n_logits);
+        expect_size("selected_tokens",selected_tokens.size(),shape.tokens);
+        expect_size("mask",mask.size(),shape.tokens);
+
+        std::vector<float> selected_logp(shape.tokens,0.0f);
+        for(size_t i=0; i<shape.tokens; i++){
+            if(mask[i]==0) continue;
+            int selected=selected_tokens[i];
+            if(selected<0 || selected>=V)
+                throw std::runtime_error("selected token is outside the vocabulary");
+
+            const float* row=logits_new.data()+i*vocab;
+            double max_logit=row[0];
+            for(int v=0; v<V; v++){
+                if(!std::isfinite(row[v])) throw std::runtime_error("logits must be finite");
+                max_logit=std::max(max_logit,static_cast<double>(row[v]));
+            }
+            double sum=0.0;
+            for(int v=0; v<V; v++) sum+=std::exp(static_cast<double>(row[v])-max_logit);
+            double logsumexp=max_logit+std::log(sum);
+            selected_logp[i]=static_cast<float>(static_cast<double>(row[selected])-logsumexp);
+        }
+
+        auto selected_loss=grpo_loss_cpu(
+            selected_logp,logp_old,logp_ref,advantages,mask,B,G,T,config
+        );
+        LogitsLossResult result;
+        result.stats=selected_loss.stats;
+        result.dlogits.assign(n_logits,0.0f);
+
+        for(size_t i=0; i<shape.tokens; i++){
+            float dlogp=selected_loss.dlogp_new[i];
+            if(dlogp==0.0f) continue;
+            int selected=selected_tokens[i];
+            const float* row=logits_new.data()+i*vocab;
+            double selected_logit=row[selected];
+            for(int v=0; v<V; v++){
+                double probability=std::exp(
+                    static_cast<double>(row[v])-selected_logit+selected_logp[i]
+                );
+                result.dlogits[i*vocab+v]=dlogp*((v==selected ? 1.0f : 0.0f)-static_cast<float>(probability));
+            }
+        }
+        return result;
+    }
 }
