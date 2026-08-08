@@ -184,6 +184,7 @@ namespace grpo {
         const int* mask,
         int n_tokens,
         int V,
+        int P,
         float* logsumexp,
         float* selected_logp
     ){
@@ -199,7 +200,7 @@ namespace grpo {
 
         extern __shared__ float work[];
         int tid=threadIdx.x;
-        size_t row_start=static_cast<size_t>(row)*V;
+        size_t row_start=static_cast<size_t>(row)*P;
         float local_max=-INFINITY;
         for(int v=tid;v<V;v+=blockDim.x){
             local_max=fmaxf(local_max,logits[row_start+v]);
@@ -236,14 +237,15 @@ namespace grpo {
         const float* dlogp,
         int n_tokens,
         int V,
+        int P,
         float* dlogits
     ){
         int row=blockIdx.x;
         if(row>=n_tokens) return;
         int tid=threadIdx.x;
-        size_t row_start=static_cast<size_t>(row)*V;
+        size_t row_start=static_cast<size_t>(row)*P;
         if(mask[row]==0){
-            for(int v=tid;v<V;v+=blockDim.x) dlogits[row_start+v]=0.0f;
+            for(int v=tid;v<P;v+=blockDim.x) dlogits[row_start+v]=0.0f;
             return;
         }
         float row_lse=logsumexp[row];
@@ -253,6 +255,7 @@ namespace grpo {
             float probability=expf(logits[row_start+v]-row_lse);
             dlogits[row_start+v]=row_grad*((v==selected ? 1.0f : 0.0f)-probability);
         }
+        for(int v=V+tid;v<P;v+=blockDim.x) dlogits[row_start+v]=0.0f;
     }
 
     // Keep the row normalizer on chip and reuse it for backward.
@@ -268,6 +271,7 @@ namespace grpo {
         int n_tokens,
         int T,
         int V,
+        int P,
         float clip_eps,
         float beta,
         float* sums,
@@ -276,9 +280,9 @@ namespace grpo {
         int row=blockIdx.x;
         if(row>=n_tokens) return;
         int tid=threadIdx.x;
-        size_t row_start=static_cast<size_t>(row)*V;
+        size_t row_start=static_cast<size_t>(row)*P;
         if(mask[row]==0){
-            for(int v=tid;v<V;v+=blockDim.x) dlogits[row_start+v]=0.0f;
+            for(int v=tid;v<P;v+=blockDim.x) dlogits[row_start+v]=0.0f;
             return;
         }
 
@@ -341,6 +345,7 @@ namespace grpo {
             float probability=expf(logits[row_start+v]-row_lse);
             dlogits[row_start+v]=row_grad*((v==selected ? 1.0f : 0.0f)-probability);
         }
+        for(int v=V+tid;v<P;v+=blockDim.x) dlogits[row_start+v]=0.0f;
     }
 
     struct DeviceData{
@@ -466,6 +471,59 @@ namespace grpo {
         CUDA_CHECK(cudaFree(d.dlogp));
     }
 
+    static LogitsDeviceData copy_logits_metadata_to_device(
+        float* logits_and_dlogits,
+        const std::vector<float>& logp_old,
+        const std::vector<float>& logp_ref,
+        const std::vector<int>& selected_tokens,
+        const std::vector<float>& advantages,
+        const std::vector<float>& weights,
+        const std::vector<int>& mask,
+        CudaLogitsKernel kernel
+    ){
+        LogitsDeviceData d;
+        d.logits=logits_and_dlogits;
+        d.dlogits=logits_and_dlogits;
+        size_t token_bytes=logp_old.size()*sizeof(float);
+        size_t token_int_bytes=selected_tokens.size()*sizeof(int);
+        size_t seq_bytes=advantages.size()*sizeof(float);
+
+        CUDA_CHECK(cudaMalloc((void**)&d.logp_old,token_bytes));
+        CUDA_CHECK(cudaMalloc((void**)&d.logp_ref,token_bytes));
+        CUDA_CHECK(cudaMalloc((void**)&d.selected_tokens,token_int_bytes));
+        CUDA_CHECK(cudaMalloc((void**)&d.advantages,seq_bytes));
+        CUDA_CHECK(cudaMalloc((void**)&d.weights,seq_bytes));
+        CUDA_CHECK(cudaMalloc((void**)&d.mask,token_int_bytes));
+        CUDA_CHECK(cudaMalloc((void**)&d.sums,3*sizeof(float)));
+        if(kernel==CudaLogitsKernel::separate){
+            CUDA_CHECK(cudaMalloc((void**)&d.selected_logp,token_bytes));
+            CUDA_CHECK(cudaMalloc((void**)&d.logsumexp,token_bytes));
+            CUDA_CHECK(cudaMalloc((void**)&d.dlogp,token_bytes));
+        }
+
+        CUDA_CHECK(cudaMemcpy(d.logp_old,logp_old.data(),token_bytes,cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d.logp_ref,logp_ref.data(),token_bytes,cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d.selected_tokens,selected_tokens.data(),token_int_bytes,cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d.advantages,advantages.data(),seq_bytes,cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d.weights,weights.data(),seq_bytes,cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d.mask,mask.data(),token_int_bytes,cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemset(d.sums,0,3*sizeof(float)));
+        return d;
+    }
+
+    static void free_logits_metadata_device(LogitsDeviceData& d){
+        CUDA_CHECK(cudaFree(d.logp_old));
+        CUDA_CHECK(cudaFree(d.logp_ref));
+        CUDA_CHECK(cudaFree(d.selected_tokens));
+        CUDA_CHECK(cudaFree(d.advantages));
+        CUDA_CHECK(cudaFree(d.weights));
+        CUDA_CHECK(cudaFree(d.mask));
+        CUDA_CHECK(cudaFree(d.sums));
+        if(d.selected_logp!=nullptr) CUDA_CHECK(cudaFree(d.selected_logp));
+        if(d.logsumexp!=nullptr) CUDA_CHECK(cudaFree(d.logsumexp));
+        if(d.dlogp!=nullptr) CUDA_CHECK(cudaFree(d.dlogp));
+    }
+
     static void launch_loss(
         const DeviceData& d,
         int n_tokens,
@@ -495,13 +553,14 @@ namespace grpo {
         int n_tokens,
         int T,
         int V,
+        int P,
         LossConfig config,
         CudaLogitsKernel kernel
     ){
         int threads=256;
         if(kernel==CudaLogitsKernel::separate){
             selected_logp_kernel<<<n_tokens,threads,threads*sizeof(float)>>>(
-                d.logits,d.selected_tokens,d.mask,n_tokens,V,d.logsumexp,d.selected_logp
+                d.logits,d.selected_tokens,d.mask,n_tokens,V,P,d.logsumexp,d.selected_logp
             );
             CUDA_CHECK(cudaGetLastError());
             DeviceData loss_view{
@@ -511,12 +570,12 @@ namespace grpo {
             launch_loss(loss_view,n_tokens,T,config,CudaLossKernel::block_reduce);
             logits_backward_kernel<<<n_tokens,threads>>>(
                 d.logits,d.selected_tokens,d.mask,d.logsumexp,d.dlogp,
-                n_tokens,V,d.dlogits
+                n_tokens,V,P,d.dlogits
             );
         }else{
             grpo_logits_fused_kernel<<<n_tokens,threads,2*threads*sizeof(float)>>>(
                 d.logits,d.logp_old,d.logp_ref,d.selected_tokens,d.advantages,d.weights,
-                d.mask,n_tokens,T,V,config.clip_eps,config.beta,d.sums,d.dlogits
+                d.mask,n_tokens,T,V,P,config.clip_eps,config.beta,d.sums,d.dlogits
             );
         }
         CUDA_CHECK(cudaGetLastError());
@@ -639,6 +698,31 @@ namespace grpo {
         return n_logits;
     }
 
+    static void validate_logits_metadata(
+        const std::vector<float>& logp_old,
+        const std::vector<float>& logp_ref,
+        const std::vector<int>& selected_tokens,
+        const std::vector<float>& advantages,
+        const std::vector<int>& mask,
+        int B,
+        int G,
+        int T,
+        int V,
+        LossConfig config
+    ){
+        auto shape=detail::checked_shape(B,G,T);
+        if(V<=0) throw std::runtime_error("V must be positive");
+        expect_size("selected_tokens",selected_tokens.size(),shape.tokens);
+        std::vector<float> selected_logp(shape.tokens,0.0f);
+        validate_inputs(
+            selected_logp,logp_old,logp_ref,advantages,mask,B,G,T,config
+        );
+        for(size_t i=0;i<shape.tokens;i++){
+            if(mask[i]!=0 && (selected_tokens[i]<0 || selected_tokens[i]>=V))
+                throw std::runtime_error("selected token is outside the vocabulary");
+        }
+    }
+
     LogitsLossResult grpo_logits_cuda(
         const std::vector<float>& logits_new,
         const std::vector<float>& logp_old,
@@ -663,7 +747,7 @@ namespace grpo {
         auto d=copy_logits_to_device(
             logits_new,logp_old,logp_ref,selected_tokens,advantages,weights,mask
         );
-        launch_logits(d,n_tokens,T,V,config,kernel);
+        launch_logits(d,n_tokens,T,V,V,config,kernel);
         CUDA_CHECK(cudaDeviceSynchronize());
 
         LogitsLossResult result;
@@ -685,6 +769,51 @@ namespace grpo {
             if(!std::isfinite(grad)) throw std::runtime_error("CUDA logits gradient became non-finite");
         }
         return result;
+    }
+
+    LossStats grpo_logits_cuda_device_inplace(
+        float* logits_and_dlogits,
+        const std::vector<float>& logp_old,
+        const std::vector<float>& logp_ref,
+        const std::vector<int>& selected_tokens,
+        const std::vector<float>& advantages,
+        const std::vector<int>& mask,
+        int B,
+        int G,
+        int T,
+        int V,
+        int P,
+        LossConfig config,
+        CudaLogitsKernel kernel
+    ){
+        if(logits_and_dlogits==nullptr)
+            throw std::runtime_error("logits_and_dlogits must not be null");
+        if(P<V) throw std::runtime_error("P must be at least V");
+        validate_logits_metadata(
+            logp_old,logp_ref,selected_tokens,advantages,mask,B,G,T,V,config
+        );
+        int valid_tokens=0;
+        auto weights=make_weights(mask,B,G,T,config.reduction,config.length_alpha,valid_tokens);
+        int n_tokens=static_cast<int>(detail::checked_shape(B,G,T).tokens);
+        auto d=copy_logits_metadata_to_device(
+            logits_and_dlogits,logp_old,logp_ref,selected_tokens,
+            advantages,weights,mask,kernel
+        );
+        launch_logits(d,n_tokens,T,V,P,config,kernel);
+        CUDA_CHECK(cudaDeviceSynchronize());
+
+        float sums[3]={0.0f,0.0f,0.0f};
+        CUDA_CHECK(cudaMemcpy(sums,d.sums,3*sizeof(float),cudaMemcpyDeviceToHost));
+        free_logits_metadata_device(d);
+
+        LossStats stats;
+        stats.loss=sums[0];
+        stats.pg_loss=sums[1];
+        stats.kl=sums[2];
+        stats.valid_tokens=valid_tokens;
+        if(!std::isfinite(stats.loss) || !std::isfinite(stats.pg_loss) || !std::isfinite(stats.kl))
+            throw std::runtime_error("CUDA logits loss became non-finite");
+        return stats;
     }
 
     static float time_kernel(
@@ -771,7 +900,7 @@ namespace grpo {
         CUDA_CHECK(cudaEventRecord(start));
         for(int i=0;i<iterations;i++){
             CUDA_CHECK(cudaMemset(d.sums,0,3*sizeof(float)));
-            launch_logits(d,n_tokens,T,V,config,kernel);
+            launch_logits(d,n_tokens,T,V,V,config,kernel);
         }
         CUDA_CHECK(cudaEventRecord(stop));
         CUDA_CHECK(cudaEventSynchronize(stop));
@@ -811,9 +940,9 @@ namespace grpo {
         );
         for(int i=0;i<warmup;i++){
             CUDA_CHECK(cudaMemset(d.sums,0,3*sizeof(float)));
-            launch_logits(d,n_tokens,T,V,config,CudaLogitsKernel::separate);
+            launch_logits(d,n_tokens,T,V,V,config,CudaLogitsKernel::separate);
             CUDA_CHECK(cudaMemset(d.sums,0,3*sizeof(float)));
-            launch_logits(d,n_tokens,T,V,config,CudaLogitsKernel::fused);
+            launch_logits(d,n_tokens,T,V,V,config,CudaLogitsKernel::fused);
         }
         CUDA_CHECK(cudaDeviceSynchronize());
 

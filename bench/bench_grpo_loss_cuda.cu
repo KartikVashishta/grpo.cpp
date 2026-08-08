@@ -273,6 +273,76 @@ namespace {
             int n_tokens=B*G*T;
             compare_logits(separate,cpu,n_tokens,V,"separate logits");
             compare_logits(fused,cpu,n_tokens,V,"fused logits");
+
+            float* device_logits=nullptr;
+            size_t logits_bytes=input.logits.size()*sizeof(float);
+            CUDA_CHECK(cudaMalloc((void**)&device_logits,logits_bytes));
+            CUDA_CHECK(cudaMemcpy(
+                device_logits,input.logits.data(),logits_bytes,cudaMemcpyHostToDevice
+            ));
+            auto device_stats=grpo::grpo_logits_cuda_device_inplace(
+                device_logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                B,G,T,V,V,config
+            );
+            grpo::LogitsLossResult in_place;
+            in_place.stats=device_stats;
+            in_place.dlogits.resize(input.logits.size());
+            CUDA_CHECK(cudaMemcpy(
+                in_place.dlogits.data(),device_logits,logits_bytes,cudaMemcpyDeviceToHost
+            ));
+            CUDA_CHECK(cudaFree(device_logits));
+            compare_logits(in_place,cpu,n_tokens,V,"in-place logits");
+        }
+
+        {
+            auto input=make_logits_input(1,2,3,17,true);
+            constexpr int P=32;
+            int n_tokens=input.B*input.G*input.T;
+            std::vector<float> padded(static_cast<size_t>(n_tokens)*P,123.0f);
+            for(int row=0;row<n_tokens;row++){
+                std::copy_n(
+                    input.logits.data()+static_cast<size_t>(row)*input.V,input.V,
+                    padded.data()+static_cast<size_t>(row)*P
+                );
+            }
+            grpo::LossConfig padded_config;
+            padded_config.beta=0.03f;
+            auto cpu=grpo::grpo_logits_cpu(
+                input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                input.B,input.G,input.T,input.V,padded_config
+            );
+            float* device_logits=nullptr;
+            size_t padded_bytes=padded.size()*sizeof(float);
+            CUDA_CHECK(cudaMalloc((void**)&device_logits,padded_bytes));
+            CUDA_CHECK(cudaMemcpy(
+                device_logits,padded.data(),padded_bytes,cudaMemcpyHostToDevice
+            ));
+            auto stats=grpo::grpo_logits_cuda_device_inplace(
+                device_logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                input.B,input.G,input.T,input.V,P,padded_config
+            );
+            CUDA_CHECK(cudaMemcpy(
+                padded.data(),device_logits,padded_bytes,cudaMemcpyDeviceToHost
+            ));
+            CUDA_CHECK(cudaFree(device_logits));
+            if(!stats_close(stats.loss,cpu.stats.loss) ||
+               !stats_close(stats.pg_loss,cpu.stats.pg_loss) ||
+               !stats_close(stats.kl,cpu.stats.kl)){
+                std::cerr << "padded in-place scalar parity failed\n";
+                std::exit(1);
+            }
+            for(int row=0;row<n_tokens;row++){
+                for(int v=0;v<P;v++){
+                    float got=padded[static_cast<size_t>(row)*P+v];
+                    float want=v<input.V
+                        ? cpu.dlogits[static_cast<size_t>(row)*input.V+v]
+                        : 0.0f;
+                    if(!std::isfinite(got) || std::fabs(got-want)>3e-5f){
+                        std::cerr << "padded in-place gradient parity failed\n";
+                        std::exit(1);
+                    }
+                }
+            }
         }
 
         grpo::LossConfig config;

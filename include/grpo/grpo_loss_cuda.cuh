@@ -65,6 +65,26 @@ namespace grpo {
         CudaLogitsKernel kernel=CudaLogitsKernel::fused
     );
 
+    // logits_and_dlogits points to B*G*T rows of P device floats. The first V
+    // entries form the vocabulary and the optional padded tail is ignored. Logits
+    // are replaced in place by dL/dlogits; the smaller rollout metadata lives
+    // on the host and is copied for this call.
+    LossStats grpo_logits_cuda_device_inplace(
+        float* logits_and_dlogits,
+        const std::vector<float>& logp_old,
+        const std::vector<float>& logp_ref,
+        const std::vector<int>& selected_tokens,
+        const std::vector<float>& advantages,
+        const std::vector<int>& mask,
+        int B,
+        int G,
+        int T,
+        int V,
+        int P,
+        LossConfig config={},
+        CudaLogitsKernel kernel=CudaLogitsKernel::fused
+    );
+
     CudaLogitsTiming benchmark_grpo_logits_cuda(
         const std::vector<float>& logits_new,
         const std::vector<float>& logp_old,
