@@ -67,6 +67,16 @@ static void test_advantages(){
     );
     close(single[0],0,0,0,"single reward advantage");
 
+    std::vector<float> decimal_rewards(7,0.1f);
+    auto decimal_z=grpo::group_advantages_cpu(
+        decimal_rewards,1,7,grpo::AdvantageMode::standardized,0
+    );
+    auto decimal_centered=grpo::group_advantages_cpu(
+        decimal_rewards,1,7,grpo::AdvantageMode::centered
+    );
+    for(float value:decimal_z) close(value,0,0,0,"equal decimal advantage");
+    for(float value:decimal_centered) close(value,0,0,0,"equal decimal centered advantage");
+
     for(int b=0;b<2;b++){
         float mean=0;
         for(int g=0;g<4;g++) mean+=centered[grpo::idx2(b,g,4)];
@@ -228,6 +238,12 @@ static void test_bad_inputs(){
     },"non-finite result");
 }
 
+static void test_zero_advantage(){
+    auto result=loss({0},{-100},{0},{0},{1},1,1,1);
+    close(result.stats.loss,0,0,0,"zero advantage loss");
+    close(result.dlogp_new[0],0,0,0,"zero advantage gradient");
+}
+
 int main(){
     test_advantages();
     test_clipping();
@@ -235,5 +251,6 @@ int main(){
     test_reductions();
     test_finite_differences();
     test_bad_inputs();
+    test_zero_advantage();
     std::cout << "test_grpo_loss passed\n";
 }

@@ -28,28 +28,27 @@ namespace grpo {
         }
         std::vector<float> advantages(shape.sequences,0.0f);
 
-        // for advantage we need the avg and the std deviations
-        // avg is the sum of reward per generation / G
-        // std is root (mean of each (reward-avg)^2 + eps)
-        // once that's calculated, for each reward, we do (ri - avg) / std
         for(int b=0; b<B; b++){
-            float mean = 0.0f;
-            float var = 0.0f;
-            for(int g=0; g<G; g++){
-                mean+=rewards[idx2(b,g,G)];
+            float first=rewards[idx2(b,0,G)];
+            bool all_equal=true;
+            for(int g=1; g<G; g++){
+                all_equal=all_equal && rewards[idx2(b,g,G)]==first;
             }
-            mean/=G;
+            if(all_equal) continue;
+
+            double mean=0.0;
+            double m2=0.0;
             for(int g=0; g<G; g++){
-                float r=rewards[idx2(b,g,G)];
-                float d=r-mean;
-                var+=d*d;
+                double r=rewards[idx2(b,g,G)];
+                double d=r-mean;
+                mean+=d/static_cast<double>(g+1);
+                m2+=d*(r-mean);
             }
-            var/=static_cast<float>(G);
-            if(mode==AdvantageMode::standardized && var==0.0f) continue;
-            float denom = mode==AdvantageMode::standardized ? std::sqrt(var+eps) : 1.0f;
+            double var=m2/static_cast<double>(G);
+            double denom=mode==AdvantageMode::standardized ? std::sqrt(var+eps) : 1.0;
             for(int g=0; g<G; g++){
-                float r=rewards[idx2(b,g,G)];
-                advantages[idx2(b,g,G)]=(r-mean)/denom;
+                double r=rewards[idx2(b,g,G)];
+                advantages[idx2(b,g,G)]=static_cast<float>((r-mean)/denom);
             }
         }
         for(float advantage:advantages){
@@ -135,22 +134,24 @@ namespace grpo {
                     int i = idx3(b,g,t,G,T);
                     if(mask[i]==0) continue;
 
-                    float rho = std::exp(logp_new[i]-logp_old[i]);
-                    float clipped_rho = std::clamp(rho, 1.0f-config.clip_eps, 1.0f+config.clip_eps);
-                    float plain = rho*A;
-                    float clipped = clipped_rho*A;
-                    float surrogate = std::min(plain,clipped);
+                    float pg_loss=0.0f;
+                    float pg_grad=0.0f;
+                    if(A!=0.0f){
+                        float rho=std::exp(logp_new[i]-logp_old[i]);
+                        float clipped_rho=std::clamp(rho,1.0f-config.clip_eps,1.0f+config.clip_eps);
+                        pg_loss=-std::min(rho*A,clipped_rho*A);
+
+                        // At the exact boundary we keep the unclipped subgradient.
+                        bool clipped_high=A>0.0f && rho>1.0f+config.clip_eps;
+                        bool clipped_low=A<0.0f && rho<1.0f-config.clip_eps;
+                        pg_grad=clipped_high || clipped_low ? 0.0f : -A*rho;
+                    }
 
                     float d = logp_ref[i]-logp_new[i];
                     float expm1_d = std::expm1(d);
                     float kl_approx = expm1_d-d;
 
-                    float pg_loss = -surrogate;
                     float loss = pg_loss + config.beta*kl_approx;
-                    // At the exact boundary we keep the unclipped subgradient.
-                    bool clipped_high=A>0.0f && rho>1.0f+config.clip_eps;
-                    bool clipped_low=A<0.0f && rho<1.0f-config.clip_eps;
-                    float pg_grad = clipped_high || clipped_low ? 0.0f : -A*rho;
                     float kl_grad = -config.beta*expm1_d;
 
                     total_loss+=weight*loss;

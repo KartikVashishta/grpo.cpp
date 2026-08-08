@@ -150,6 +150,10 @@ namespace {
             std::cerr << "CPU/CUDA error contract failed\n";
             std::exit(1);
         }
+
+        auto cpu_zero=grpo::grpo_loss_cpu({0},{-100},{0},{0},{1},1,1,1,config);
+        auto cuda_zero=grpo::grpo_loss_cuda({0},{-100},{0},{0},{1},1,1,1,config);
+        compare(cuda_zero,cpu_zero,"zero advantage");
         std::cout << "CUDA checks passed (" << shapes.size() << " shapes)\n";
     }
 

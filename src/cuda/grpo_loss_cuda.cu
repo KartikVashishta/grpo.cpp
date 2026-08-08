@@ -69,22 +69,24 @@ namespace grpo {
         float& kl,
         float& grad
     ){
-        float ratio=expf(logp_new-logp_old);
-        float clipped_ratio=fminf(fmaxf(ratio,1.0f-clip_eps),1.0f+clip_eps);
-        float plain=ratio*advantage;
-        float clipped=clipped_ratio*advantage;
-        float surrogate=fminf(plain,clipped);
+        pg_loss=0.0f;
+        float pg_grad=0.0f;
+        if(advantage!=0.0f){
+            float ratio=expf(logp_new-logp_old);
+            float clipped_ratio=fminf(fmaxf(ratio,1.0f-clip_eps),1.0f+clip_eps);
+            pg_loss=-fminf(ratio*advantage,clipped_ratio*advantage);
+
+            // Match the CPU convention: the exact boundary uses the ratio branch.
+            bool clipped_high=advantage>0.0f && ratio>1.0f+clip_eps;
+            bool clipped_low=advantage<0.0f && ratio<1.0f-clip_eps;
+            pg_grad=clipped_high || clipped_low ? 0.0f : -advantage*ratio;
+        }
 
         float d=logp_ref-logp_new;
         float expm1_d=expm1f(d);
         kl=expm1_d-d;
-        pg_loss=-surrogate;
         loss=pg_loss+beta*kl;
 
-        // Match the CPU convention: the exact boundary uses the ratio branch.
-        bool clipped_high=advantage>0.0f && ratio>1.0f+clip_eps;
-        bool clipped_low=advantage<0.0f && ratio<1.0f-clip_eps;
-        float pg_grad=clipped_high || clipped_low ? 0.0f : -advantage*ratio;
         float kl_grad=-beta*expm1_d;
         loss*=weight;
         pg_loss*=weight;
