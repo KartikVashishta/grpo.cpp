@@ -5,8 +5,8 @@ I wanted a GRPO implementation small enough to step through in a debugger.
 This one trains a 24-logit autoregressive policy in plain C++: sample a group,
 score it, compute relative advantages, run the clipped loss, backpropagate
 through log-softmax, and update the policy with SGD. The CUDA path evaluates the
-same token loss and `dL/dlogp`; it does not hide a transformer or an autograd
-engine.
+same token loss and can backpropagate from vocabulary logits. It does not hide
+a transformer or an autograd engine.
 
 ```text
 rollouts -> rewards -> group advantages -> clipped loss -> dlogp -> SGD
@@ -31,6 +31,7 @@ cmake -S . -B build-cuda -DGRPO_USE_CUDA=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cuda -j
 ctest --test-dir build-cuda --output-on-failure
 ./build-cuda/bench_grpo_loss_cuda
+./build-cuda/bench_grpo_loss_cuda --logits-only
 ```
 
 ## The toy policy
@@ -105,6 +106,24 @@ the accumulator reset and kernel launch, but not allocation, validation,
 weight construction, or transfers. The speedup is against the intentionally
 simple atomic baseline, not an end-to-end training number.
 
+There is a second benchmark at the model-facing boundary. The baseline runs
+log-softmax and gather, the selected-token GRPO loss, and log-softmax backward
+as three kernels. The fused path carries the row maximum and normalizer together
+as in [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867),
+then writes the full logits gradient without storing `logsumexp`, selected
+log-probabilities, or `dlogp` between kernels.
+
+These numbers are medians of 15 alternating-order samples on the same T4:
+
+| tokens | vocabulary | mask | separate | fused |
+| ---: | ---: | --- | ---: | ---: |
+| 1,024 | 32,768 | full | 2.3959 ms | 1.8687 ms |
+| 1,024 | 32,768 | ragged | 1.8158 ms | 1.4404 ms |
+| 1,024 | 131,072 | full | 10.3036 ms | 7.9044 ms |
+
+That is `1.26x` to `1.30x` for these rows. It is a fused loss-boundary result,
+not a claim about transformer training throughput.
+
 ## Two T4s
 
 [`apps/03_two_gpu_train.cu`](apps/03_two_gpu_train.cu) splits each 16-sample
@@ -122,3 +141,4 @@ suite passed 5/5, followed by Compute Sanitizer memcheck and racecheck.
 - [Understanding R1-Zero-Like Training](https://arxiv.org/abs/2503.20783) introduced Dr.GRPO and discusses response-length bias.
 - [DAPO](https://arxiv.org/abs/2503.14476) uses the global token-level policy loss.
 - [On the Impossibility of Unbiased and Length-Invariant Policy Optimization with Outcome Rewards](https://arxiv.org/abs/2607.23364) gives the alpha trade-off used above.
+- [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867) gives the one-pass normalizer used by the fused logits kernel.

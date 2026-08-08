@@ -262,12 +262,17 @@ namespace {
                 input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
                 B,G,T,V,config
             );
-            auto cuda=grpo::grpo_logits_cuda(
+            auto separate=grpo::grpo_logits_cuda(
                 input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
-                B,G,T,V,config
+                B,G,T,V,config,grpo::CudaLogitsKernel::separate
+            );
+            auto fused=grpo::grpo_logits_cuda(
+                input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                B,G,T,V,config,grpo::CudaLogitsKernel::fused
             );
             int n_tokens=B*G*T;
-            compare_logits(cuda,cpu,n_tokens,V,"CUDA logits");
+            compare_logits(separate,cpu,n_tokens,V,"separate logits");
+            compare_logits(fused,cpu,n_tokens,V,"fused logits");
         }
 
         grpo::LossConfig config;
@@ -279,11 +284,11 @@ namespace {
             zero.logits,zero.old,zero.ref,zero.selected,zero.advantages,zero.mask,
             1,1,1,3,config
         );
-        auto cuda=grpo::grpo_logits_cuda(
+        auto fused=grpo::grpo_logits_cuda(
             zero.logits,zero.old,zero.ref,zero.selected,zero.advantages,zero.mask,
-            1,1,1,3,config
+            1,1,1,3,config,grpo::CudaLogitsKernel::fused
         );
-        compare_logits(cuda,cpu,1,3,"zero-advantage logits");
+        compare_logits(fused,cpu,1,3,"zero-advantage logits");
         std::cout << "CUDA logits checks passed (" << cases.size()+1 << " cases)\n";
     }
 
@@ -338,16 +343,55 @@ namespace {
         }
     }
 
+    void benchmark_logits(){
+        std::vector<std::tuple<int,int,int,int,bool>> cases={
+            {32,8,4,4096,false},
+            {32,8,4,32768,false},
+            {32,8,4,32768,true},
+            {32,8,4,131072,false},
+            {256,8,4,4096,false},
+            {1024,8,4,4096,false}
+        };
+        std::cout << "\nResident-device logits forward, GRPO, and full logits backward. "
+                     "Includes accumulator reset and every GPU stage; excludes setup and transfers. "
+                     "Timing order alternates across 15 samples.\n";
+        std::cout << "tokens V mask active_% separate_ms fused_ms speedup\n";
+        std::cout << std::fixed << std::setprecision(4);
+        for(auto [B,G,T,V,partial]:cases){
+            auto input=make_logits_input(B,G,T,V,partial);
+            int n_tokens=B*G*T;
+            int active=std::count(input.mask.begin(),input.mask.end(),1);
+            size_t work=static_cast<size_t>(n_tokens)*V;
+            int iterations=work<=8*1024*1024 ? 100 : (work<=64*1024*1024 ? 30 : 10);
+            grpo::LossConfig config;
+            config.beta=0.01f;
+            auto timing=grpo::benchmark_grpo_logits_cuda(
+                input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                B,G,T,V,config,10,iterations
+            );
+            std::cout << n_tokens << " " << V << " "
+                      << (partial ? "ragged" : "full") << " "
+                      << std::setprecision(1) << 100.0*active/n_tokens << " "
+                      << std::setprecision(4) << timing.separate_ms << " "
+                      << timing.fused_ms << " " << timing.separate_ms/timing.fused_ms << "\n";
+        }
+    }
 }
 
 int main(int argc, char** argv){
     check_cuda();
     check_logits_cuda();
     if(argc==2 && std::string(argv[1])=="--check-only") return 0;
+    if(argc==2 && std::string(argv[1])=="--logits-only"){
+        print_machine();
+        benchmark_logits();
+        return 0;
+    }
     if(argc!=1){
-        std::cerr << "usage: bench_grpo_loss_cuda [--check-only]\n";
+        std::cerr << "usage: bench_grpo_loss_cuda [--check-only|--logits-only]\n";
         return 2;
     }
     print_machine();
     benchmark();
+    benchmark_logits();
 }
