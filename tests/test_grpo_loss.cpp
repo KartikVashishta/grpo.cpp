@@ -1,4 +1,5 @@
 #include "grpo/grpo_loss.hpp"
+#include "grpo/vigor.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -311,6 +312,40 @@ static void test_logits_boundary(){
     },"non-finite logits");
 }
 
+static void test_vigor_allocation(){
+    grpo::VigorAllocator allocator(8);
+    std::vector<std::vector<float>> streams(8,std::vector<float>(30,0.0f));
+    for(int i=0;i<30;i++) streams[0][i]=static_cast<float>(i%2);
+    streams[1][1]=1.0f;
+    for(int i=4;i<30;i+=5) streams[1][i]=1.0f;
+    streams[2][1]=1.0f;
+    streams[3][1]=1.0f;
+
+    while(true){
+        int count=allocator.rollouts_per_prompt();
+        for(int prompt:allocator.active_prompts()){
+            int offset=allocator.rollout_count(prompt);
+            std::vector<float> rewards(
+                streams[prompt].begin()+offset,
+                streams[prompt].begin()+offset+count
+            );
+            allocator.observe(prompt,rewards);
+        }
+        if(!allocator.refine()) break;
+    }
+
+    std::vector<int> want={30,14,6,6,2,2,2,2};
+    int total=0;
+    for(int prompt=0;prompt<8;prompt++){
+        check(allocator.rollout_count(prompt)==want[prompt],"VIGOR rollout allocation");
+        total+=allocator.rollout_count(prompt);
+    }
+    check(total==64,"VIGOR matched rollout budget");
+    must_throw([&]{
+        allocator.observe(7,std::vector<float>(16,0.0f));
+    },"inactive VIGOR prompt");
+}
+
 int main(){
     test_advantages();
     test_clipping();
@@ -320,5 +355,6 @@ int main(){
     test_bad_inputs();
     test_zero_advantage();
     test_logits_boundary();
+    test_vigor_allocation();
     std::cout << "test_grpo_loss passed\n";
 }

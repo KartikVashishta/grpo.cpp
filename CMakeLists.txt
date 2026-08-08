@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(grpo_cpp LANGUAGES CXX)
 
-add_library(grpo_cpu src/cpu/grpo_loss.cpp)
+add_library(grpo_cpu
+    src/cpu/grpo_loss.cpp
+    src/cpu/vigor.cpp
+)
 target_include_directories(grpo_cpu PUBLIC include)
 target_compile_features(grpo_cpu PUBLIC cxx_std_20)
 
