@@ -34,6 +34,19 @@ ctest --test-dir build-cuda --output-on-failure
 ./build-cuda/bench_grpo_loss_cuda --logits-only
 ```
 
+The GPT-2 example is kept out of the default build. It fetches one pinned
+[`llm.c`](https://github.com/karpathy/llm.c) revision for the model code:
+
+```bash
+cmake -S . -B build-gpt2 \
+  -DGRPO_USE_CUDA=ON -DGRPO_BUILD_GPT2=ON \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build-gpt2 -j
+curl -L -o gpt2_124M.bin \
+  https://huggingface.co/datasets/karpathy/llmc-starter-pack/resolve/main/gpt2_124M.bin
+./build-gpt2/gpt2_grpo gpt2_124M.bin
+```
+
 ## The toy policy
 
 There are three prompts, three ordinary tokens, and EOS. A rollout gets reward
@@ -123,6 +136,29 @@ These numbers are medians of 15 alternating-order samples on the same T4:
 
 That is `1.26x` to `1.30x` for these rows. It is a fused loss-boundary result,
 not a claim about transformer training throughput.
+
+## A real model update
+
+[`apps/04_gpt2_grpo.cu`](apps/04_gpt2_grpo.cu) runs the same loss against the
+FP32 GPT-2 124M model from `llm.c`. Sampling is deliberately plain and still
+comes back to the CPU. At the loss boundary the padded model logits stay in
+their GPU buffer: the fused kernel turns them into `dL/dlogits` in place, then
+`llm.c` carries that gradient through the transformer and AdamW.
+
+The check uses three fixed prompts, 32 samples per prompt, exact one-token
+rewards, a fixed initial reference with `beta=0.01`, and four PPO passes per
+update. One H100 SXM run with CUDA 13.2 produced:
+
+```text
+                         Paris      blue       cold
+before                 0.032243  0.042152  0.162726
+after four updates     0.954336  0.899102  0.992023
+```
+
+Mean target probability moved from `0.079040` to `0.948487` in 3.183 seconds.
+A separate one-update run under Compute Sanitizer
+memcheck reported zero errors. This is a small training-path check, not a useful
+language-model recipe or an end-to-end throughput benchmark.
 
 ## Two T4s
 

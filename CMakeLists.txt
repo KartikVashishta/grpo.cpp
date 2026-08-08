@@ -24,6 +24,11 @@ if(BUILD_TESTING)
 endif()
 
 option(GRPO_USE_CUDA "Build CUDA labs and kernels" OFF)
+option(GRPO_BUILD_GPT2 "Build the optional llm.c GPT-2 example" OFF)
+
+if(GRPO_BUILD_GPT2 AND NOT GRPO_USE_CUDA)
+    message(FATAL_ERROR "GRPO_BUILD_GPT2 requires GRPO_USE_CUDA=ON")
+endif()
 
 if(GRPO_USE_CUDA)
     enable_language(CUDA)
@@ -61,6 +66,28 @@ if(GRPO_USE_CUDA)
 
     target_include_directories(lab_00_vector_add PRIVATE include)
     target_include_directories(lab_01_reduce_sum PRIVATE include)
+
+    if(GRPO_BUILD_GPT2)
+        include(FetchContent)
+        FetchContent_Declare(
+            llmc
+            GIT_REPOSITORY https://github.com/karpathy/llm.c.git
+            GIT_TAG f1e2ace651495b74ae22d45d1723443fd00ecd3a
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(llmc)
+        find_package(CUDAToolkit REQUIRED)
+
+        add_executable(gpt2_grpo apps/04_gpt2_grpo.cu)
+        target_include_directories(gpt2_grpo PRIVATE ${llmc_SOURCE_DIR})
+        target_link_libraries(gpt2_grpo PRIVATE grpo_cuda CUDA::cublas)
+        set_target_properties(gpt2_grpo PROPERTIES
+            # llm.c defines its own lerp; C++20 adds std::lerp and newer nvcc
+            # considers the unqualified call ambiguous.
+            CUDA_STANDARD 17
+            CUDA_STANDARD_REQUIRED ON
+        )
+    endif()
 
     if(BUILD_TESTING)
         add_test(NAME grpo_loss_cuda
