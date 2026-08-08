@@ -47,6 +47,9 @@ curl -L -o gpt2_124M.bin \
 ./build-gpt2/gpt2_grpo gpt2_124M.bin
 ```
 
+Add `-DGRPO_BUILD_DISTRIBUTED=ON` if NCCL is installed and you want the
+two-GPU example as well.
+
 ## The toy policy
 
 There are three prompts, three ordinary tokens, and EOS. A rollout gets reward
@@ -145,20 +148,56 @@ comes back to the CPU. At the loss boundary the padded model logits stay in
 their GPU buffer: the fused kernel turns them into `dL/dlogits` in place, then
 `llm.c` carries that gradient through the transformer and AdamW.
 
-The check uses three fixed prompts, 32 samples per prompt, exact one-token
-rewards, a fixed initial reference with `beta=0.01`, and four PPO passes per
-update. One H100 SXM run with CUDA 13.2 produced:
+The check uses eight fixed prompts, exact one-token rewards, a fixed initial
+reference with `beta=0.01`, and four PPO passes per update. There are two
+rollout allocators:
 
-```text
-                         Paris      blue       cold
-before                 0.032243  0.042152  0.162726
-after four updates     0.954336  0.899102  0.992023
+```bash
+./build-gpt2/gpt2_grpo gpt2_124M.bin 4 uniform 42
+./build-gpt2/gpt2_grpo gpt2_124M.bin 4 vigor 42
 ```
 
-Mean target probability moved from `0.079040` to `0.948487` in 3.183 seconds.
-A separate one-update run under Compute Sanitizer
-memcheck reported zero errors. This is a small training-path check, not a useful
-language-model recipe or an end-to-end throughput benchmark.
+Uniform gives every prompt eight samples. The VIGOR path starts every prompt at
+two samples, keeps the half with the highest cumulative reward variance, and
+doubles the sampling count for four rounds. With eight prompts that produces
+the sorted allocation `30 14 6 6 2 2 2 2`: still 64 samples in total, so the
+comparison does not quietly buy more model output.
+
+The allocator follows [VIGOR](https://arxiv.org/abs/2607.22002). On three seeded
+four-update runs on an A100 PCIe 40 GB, the final mean target probabilities were:
+
+| seed | uniform | VIGOR |
+| ---: | ---: | ---: |
+| 42 | 0.338416 | 0.339761 |
+| 43 | 0.379996 | 0.307541 |
+| 44 | 0.338991 | 0.393748 |
+| mean | 0.352468 | 0.347017 |
+
+That tiny check is a tie within the noise and does not demonstrate the paper's
+sample-efficiency result. It does exercise the complete allocator and model
+update under an equal rollout budget. A one-update VIGOR run under Compute
+Sanitizer memcheck reported zero errors.
+
+## Two-GPU GPT-2
+
+[`apps/05_two_gpu_gpt2_grpo.cu`](apps/05_two_gpu_gpt2_grpo.cu) is the next step
+past the earlier toy sharding example. It forks one process per GPU, gathers
+rewards to compute advantages over the full 16-sample group, then averages the
+GPT-2 parameter gradients with NCCL after every PPO pass.
+
+```bash
+cmake -S . -B build-gpt2 \
+  -DGRPO_USE_CUDA=ON -DGRPO_BUILD_GPT2=ON \
+  -DGRPO_BUILD_DISTRIBUTED=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build-gpt2 -j
+./build-gpt2/gpt2_grpo_2gpu gpt2_124M.bin 4
+```
+
+On two A100 PCIe 40 GB cards with CUDA 12.8 and NCCL 2.26.2, two four-update
+runs moved both replicas from `0.0597304` to `0.675478` and `0.666268`. The
+program also hashed every parameter after training; the two hashes matched in
+both runs. This is real synchronous data-parallel model training, but
+deliberately not a launcher, checkpoint manager, or cluster framework.
 
 ## Two T4s
 
@@ -178,3 +217,4 @@ suite passed 5/5, followed by Compute Sanitizer memcheck and racecheck.
 - [DAPO](https://arxiv.org/abs/2503.14476) uses the global token-level policy loss.
 - [On the Impossibility of Unbiased and Length-Invariant Policy Optimization with Outcome Rewards](https://arxiv.org/abs/2607.23364) gives the alpha trade-off used above.
 - [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867) gives the one-pass normalizer used by the fused logits kernel.
+- [VIGOR](https://arxiv.org/abs/2607.22002) gives the variance-guided rollout allocation used by the GPT-2 example.

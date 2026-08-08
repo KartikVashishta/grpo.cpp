@@ -28,9 +28,13 @@ endif()
 
 option(GRPO_USE_CUDA "Build CUDA labs and kernels" OFF)
 option(GRPO_BUILD_GPT2 "Build the optional llm.c GPT-2 example" OFF)
+option(GRPO_BUILD_DISTRIBUTED "Build the optional two-GPU GPT-2 example" OFF)
 
 if(GRPO_BUILD_GPT2 AND NOT GRPO_USE_CUDA)
     message(FATAL_ERROR "GRPO_BUILD_GPT2 requires GRPO_USE_CUDA=ON")
+endif()
+if(GRPO_BUILD_DISTRIBUTED AND NOT GRPO_BUILD_GPT2)
+    message(FATAL_ERROR "GRPO_BUILD_DISTRIBUTED requires GRPO_BUILD_GPT2=ON")
 endif()
 
 if(GRPO_USE_CUDA)
@@ -90,6 +94,23 @@ if(GRPO_USE_CUDA)
             CUDA_STANDARD 17
             CUDA_STANDARD_REQUIRED ON
         )
+
+        if(GRPO_BUILD_DISTRIBUTED)
+            find_path(NCCL_INCLUDE_DIR nccl.h REQUIRED)
+            find_library(NCCL_LIBRARY nccl REQUIRED)
+            add_executable(gpt2_grpo_2gpu apps/05_two_gpu_gpt2_grpo.cu)
+            target_include_directories(gpt2_grpo_2gpu PRIVATE
+                ${llmc_SOURCE_DIR}
+                ${NCCL_INCLUDE_DIR}
+            )
+            target_link_libraries(gpt2_grpo_2gpu PRIVATE
+                grpo_cuda CUDA::cublas ${NCCL_LIBRARY}
+            )
+            set_target_properties(gpt2_grpo_2gpu PROPERTIES
+                CUDA_STANDARD 17
+                CUDA_STANDARD_REQUIRED ON
+            )
+        endif()
     endif()
 
     if(BUILD_TESTING)
