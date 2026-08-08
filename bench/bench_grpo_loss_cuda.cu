@@ -24,6 +24,12 @@ namespace {
         std::vector<int> mask;
     };
 
+    struct LogitsInput{
+        int B=0,G=0,T=0,V=0;
+        std::vector<float> logits,old,ref,advantages;
+        std::vector<int> selected,mask;
+    };
+
     Input make_input(int B, int G, int T, bool partial){
         Input x;
         x.B=B; x.G=G; x.T=T;
@@ -46,6 +52,50 @@ namespace {
                 x.now[i]=x.old[i]+shift;
                 x.ref[i]=x.old[i]+0.03f*static_cast<float>((i%5)-2);
                 x.mask[i]=t<length;
+            }
+        }
+        return x;
+    }
+
+    LogitsInput make_logits_input(int B, int G, int T, int V, bool partial){
+        LogitsInput x;
+        x.B=B; x.G=G; x.T=T; x.V=V;
+        int n_sequences=B*G;
+        int n_tokens=n_sequences*T;
+        x.logits.resize(static_cast<size_t>(n_tokens)*V);
+        x.old.resize(n_tokens);
+        x.ref.resize(n_tokens);
+        x.advantages.resize(n_sequences);
+        x.selected.resize(n_tokens);
+        x.mask.assign(n_tokens,0);
+
+        std::vector<float> base(V);
+        double base_sum=0.0;
+        for(int v=0;v<V;v++){
+            base[v]=-0.001f*static_cast<float>(v%257);
+            base_sum+=std::exp(static_cast<double>(base[v]));
+        }
+        double base_lse=std::log(base_sum);
+        for(int seq=0;seq<n_sequences;seq++){
+            x.advantages[seq]=(seq%2==0 ? 0.6f : -0.4f)+0.02f*(seq%3);
+            int length=partial ? 1+(seq*5)%T : T;
+            for(int t=0;t<T;t++){
+                int row=seq*T+t;
+                bool active=t<length;
+                x.mask[row]=active;
+                x.selected[row]=active ? (row*37+11)%V : -1;
+                float row_shift=0.01f*static_cast<float>(row%7);
+                float* logits=x.logits.data()+static_cast<size_t>(row)*V;
+                for(int v=0;v<V;v++) logits[v]=base[v]+row_shift;
+                if(active){
+                    float now=static_cast<float>(base[x.selected[row]]-base_lse);
+                    float ratio_shift=-0.25f+0.1f*static_cast<float>(row%6);
+                    x.old[row]=now-ratio_shift;
+                    x.ref[row]=now+0.01f*static_cast<float>((row%5)-2);
+                }else{
+                    x.old[row]=0.0f;
+                    x.ref[row]=0.0f;
+                }
             }
         }
         return x;
@@ -84,6 +134,47 @@ namespace {
             max_error=std::max(max_error,std::fabs(got.dlogp_new[i]-want.dlogp_new[i]));
         }
         if(max_error>2e-5f){
+            std::cerr << name << " gradient parity failed: " << max_error << "\n";
+            std::exit(1);
+        }
+    }
+
+    void compare_logits(
+        const grpo::LogitsLossResult& got,
+        const grpo::LogitsLossResult& want,
+        int n_tokens,
+        int V,
+        const char* name
+    ){
+        if(!stats_close(got.stats.loss,want.stats.loss) ||
+           !stats_close(got.stats.pg_loss,want.stats.pg_loss) ||
+           !stats_close(got.stats.kl,want.stats.kl)){
+            std::cerr << name << " scalar parity failed\n";
+            std::exit(1);
+        }
+        if(got.stats.valid_tokens!=want.stats.valid_tokens ||
+           got.dlogits.size()!=want.dlogits.size()){
+            std::cerr << name << " output shape failed\n";
+            std::exit(1);
+        }
+        float max_error=0.0f;
+        for(int row=0;row<n_tokens;row++){
+            float row_sum=0.0f;
+            for(int v=0;v<V;v++){
+                size_t i=static_cast<size_t>(row)*V+v;
+                if(!std::isfinite(got.dlogits[i]) || !std::isfinite(want.dlogits[i])){
+                    std::cerr << name << " non-finite gradient\n";
+                    std::exit(1);
+                }
+                max_error=std::max(max_error,std::fabs(got.dlogits[i]-want.dlogits[i]));
+                row_sum+=got.dlogits[i];
+            }
+            if(std::fabs(row_sum)>3e-5f){
+                std::cerr << name << " gradient row sum failed: " << row_sum << "\n";
+                std::exit(1);
+            }
+        }
+        if(max_error>3e-5f){
             std::cerr << name << " gradient parity failed: " << max_error << "\n";
             std::exit(1);
         }
@@ -157,6 +248,45 @@ namespace {
         std::cout << "CUDA checks passed (" << shapes.size() << " shapes)\n";
     }
 
+    void check_logits_cuda(){
+        std::vector<std::tuple<int,int,int,int,bool>> cases={
+            {1,2,3,17,true},
+            {2,2,2,257,false},
+            {1,1,2,4099,false}
+        };
+        for(auto [B,G,T,V,partial]:cases){
+            auto input=make_logits_input(B,G,T,V,partial);
+            grpo::LossConfig config;
+            config.beta=0.03f;
+            auto cpu=grpo::grpo_logits_cpu(
+                input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                B,G,T,V,config
+            );
+            auto cuda=grpo::grpo_logits_cuda(
+                input.logits,input.old,input.ref,input.selected,input.advantages,input.mask,
+                B,G,T,V,config
+            );
+            int n_tokens=B*G*T;
+            compare_logits(cuda,cpu,n_tokens,V,"CUDA logits");
+        }
+
+        grpo::LossConfig config;
+        auto zero=make_logits_input(1,1,1,3,false);
+        zero.advantages[0]=0.0f;
+        zero.old[0]=-101.0f;
+        zero.ref[0]=zero.old[0];
+        auto cpu=grpo::grpo_logits_cpu(
+            zero.logits,zero.old,zero.ref,zero.selected,zero.advantages,zero.mask,
+            1,1,1,3,config
+        );
+        auto cuda=grpo::grpo_logits_cuda(
+            zero.logits,zero.old,zero.ref,zero.selected,zero.advantages,zero.mask,
+            1,1,1,3,config
+        );
+        compare_logits(cuda,cpu,1,3,"zero-advantage logits");
+        std::cout << "CUDA logits checks passed (" << cases.size()+1 << " cases)\n";
+    }
+
     void print_machine(){
         cudaDeviceProp device;
         CUDA_CHECK(cudaGetDeviceProperties(&device,0));
@@ -207,10 +337,12 @@ namespace {
             }
         }
     }
+
 }
 
 int main(int argc, char** argv){
     check_cuda();
+    check_logits_cuda();
     if(argc==2 && std::string(argv[1])=="--check-only") return 0;
     if(argc!=1){
         std::cerr << "usage: bench_grpo_loss_cuda [--check-only]\n";
