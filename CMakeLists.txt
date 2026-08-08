@@ -8,11 +8,15 @@ target_compile_features(grpo_cpu PUBLIC cxx_std_20)
 add_executable(grpo_loss_cpu apps/00_grpo_loss_cpu.cpp)
 target_link_libraries(grpo_loss_cpu PRIVATE grpo_cpu)
 
+add_executable(tiny_grpo_train apps/01_tiny_grpo_train.cpp)
+target_link_libraries(tiny_grpo_train PRIVATE grpo_cpu)
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(test_grpo_loss tests/test_grpo_loss.cpp)
     target_link_libraries(test_grpo_loss PRIVATE grpo_cpu)
     add_test(NAME grpo_loss_cpu COMMAND test_grpo_loss)
+    add_test(NAME tiny_grpo_train COMMAND tiny_grpo_train)
 endif()
 
 option(GRPO_USE_CUDA "Build CUDA labs and kernels" OFF)
