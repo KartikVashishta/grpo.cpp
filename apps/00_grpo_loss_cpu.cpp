@@ -49,10 +49,12 @@ int main(){
         mask[i]=0;
     }
 
-    float clip_eps=0.2f;
-    float beta=0.01f;
+    grpo::LossConfig config;
+    config.beta=0.01f;
+    config.reduction=grpo::ReductionMode::token_mean;
 
-    auto stats=grpo::grpo_loss_cpu(logp_new,logp_old,logp_ref,advantages,mask,B,G,T,clip_eps,beta);
+    auto result=grpo::grpo_loss_cpu(logp_new,logp_old,logp_ref,advantages,mask,B,G,T,config);
+    const auto& stats=result.stats;
 
     std::cout << "loss=" << stats.loss << "\n";
     std::cout << "pg_loss=" << stats.pg_loss << "\n";
