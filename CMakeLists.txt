@@ -31,12 +31,24 @@ if(GRPO_USE_CUDA)
         set(CMAKE_CUDA_ARCHITECTURES native)
     endif()
 
+    add_library(grpo_cuda src/cuda/grpo_loss_cuda.cu)
+    target_include_directories(grpo_cuda PUBLIC include)
+    target_link_libraries(grpo_cuda PUBLIC grpo_cpu)
+
+    add_executable(bench_grpo_loss_cuda bench/bench_grpo_loss_cuda.cu)
+    target_link_libraries(bench_grpo_loss_cuda PRIVATE grpo_cuda)
+    target_compile_definitions(bench_grpo_loss_cuda PRIVATE
+        GRPO_BUILD_CONFIG="$<CONFIG>"
+    )
+
     add_executable(lab_00_vector_add labs/00_vector_add.cu)
     add_executable(lab_01_reduce_sum labs/01_reduce_sum.cu)
 
     set_target_properties(
         lab_00_vector_add
         lab_01_reduce_sum
+        grpo_cuda
+        bench_grpo_loss_cuda
         PROPERTIES
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
@@ -44,4 +56,10 @@ if(GRPO_USE_CUDA)
 
     target_include_directories(lab_00_vector_add PRIVATE include)
     target_include_directories(lab_01_reduce_sum PRIVATE include)
+
+    if(BUILD_TESTING)
+        add_test(NAME grpo_loss_cuda
+            COMMAND bench_grpo_loss_cuda --check-only
+        )
+    endif()
 endif()

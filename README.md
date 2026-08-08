@@ -4,8 +4,9 @@ I wanted a GRPO implementation small enough to step through in a debugger.
 
 This one trains a 24-logit autoregressive policy in plain C++: sample a group,
 score it, compute relative advantages, run the clipped loss, backpropagate
-through log-softmax, and update the policy with SGD. It does not hide a
-transformer or an autograd engine.
+through log-softmax, and update the policy with SGD. The CUDA path evaluates the
+same token loss and `dL/dlogp`; it does not hide a transformer or an autograd
+engine.
 
 ```text
 rollouts -> rewards -> group advantages -> clipped loss -> dlogp -> SGD
@@ -13,12 +14,23 @@ rollouts -> rewards -> group advantages -> clipped loss -> dlogp -> SGD
 
 ## Build
 
+The CPU build has no CUDA dependency.
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ./build/tiny_grpo_train
 ./build/length_tradeoff
+```
+
+For the CUDA loss and benchmarks:
+
+```bash
+cmake -S . -B build-cuda -DGRPO_USE_CUDA=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cuda -j
+ctest --test-dir build-cuda --output-on-failure
+./build-cuda/bench_grpo_loss_cuda
 ```
 
 ## The toy policy
@@ -72,3 +84,23 @@ sampled groups:
 
 Only the `alpha=1` row is the derivative of expected reward in this toy problem;
 the other rows are the updates induced by their respective length weights.
+
+## CUDA
+
+The naive kernel performs three global atomics for every active token. The
+second kernel reduces inside each block, then performs three atomics per block.
+Both are checked against the CPU result before the benchmark runs.
+
+These are medians of three runs on a Tesla T4 with CUDA 12.8 and nvcc 12.8.93:
+
+| tokens | mask | per-token atomics | block reduction |
+| ---: | --- | ---: | ---: |
+| 1,048,576 | full | 6.2334 ms | 0.1034 ms |
+| 1,048,576 | ragged | 3.7385 ms | 0.0896 ms |
+| 4,194,304 | full | 24.9207 ms | 0.4416 ms |
+| 4,194,304 | ragged | 14.9457 ms | 0.3687 ms |
+
+The arrays are already on the device for this measurement. A timed pass includes
+the accumulator reset and kernel launch, but not allocation, validation,
+weight construction, or transfers. The speedup is against the intentionally
+simple atomic baseline, not an end-to-end training number.
