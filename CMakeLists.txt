@@ -41,6 +41,10 @@ if(GRPO_USE_CUDA)
         GRPO_BUILD_CONFIG="$<CONFIG>"
     )
 
+    find_package(Threads REQUIRED)
+    add_executable(two_gpu_grpo_train apps/03_two_gpu_train.cu)
+    target_link_libraries(two_gpu_grpo_train PRIVATE grpo_cuda Threads::Threads)
+
     add_executable(lab_00_vector_add labs/00_vector_add.cu)
     add_executable(lab_01_reduce_sum labs/01_reduce_sum.cu)
 
@@ -49,6 +53,7 @@ if(GRPO_USE_CUDA)
         lab_01_reduce_sum
         grpo_cuda
         bench_grpo_loss_cuda
+        two_gpu_grpo_train
         PROPERTIES
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
@@ -61,5 +66,9 @@ if(GRPO_USE_CUDA)
         add_test(NAME grpo_loss_cuda
             COMMAND bench_grpo_loss_cuda --check-only
         )
+        add_test(NAME two_gpu_grpo_train
+            COMMAND two_gpu_grpo_train
+        )
+        set_tests_properties(two_gpu_grpo_train PROPERTIES SKIP_RETURN_CODE 77)
     endif()
 endif()

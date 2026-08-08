@@ -104,3 +104,21 @@ The arrays are already on the device for this measurement. A timed pass includes
 the accumulator reset and kernel launch, but not allocation, validation,
 weight construction, or transfers. The speedup is against the intentionally
 simple atomic baseline, not an end-to-end training number.
+
+## Two T4s
+
+[`apps/03_two_gpu_train.cu`](apps/03_two_gpu_train.cu) splits each 16-sample
+group across two devices, launches one host thread per device, and adds the two
+gradient shards before SGD. It is a small single-process data-parallel check,
+not DDP or an NCCL runtime; sampling and the policy update are still on the CPU.
+
+On Kaggle's two T4s, the three seeded runs finished at `0.973275`, `0.972558`,
+and `0.971674`. The first sharded update matched one global CPU batch. The CUDA
+suite passed 5/5, followed by Compute Sanitizer memcheck and racecheck.
+
+## References
+
+- [DeepSeekMath](https://arxiv.org/abs/2402.03300) introduced GRPO.
+- [Understanding R1-Zero-Like Training](https://arxiv.org/abs/2503.20783) introduced Dr.GRPO and discusses response-length bias.
+- [DAPO](https://arxiv.org/abs/2503.14476) uses the global token-level policy loss.
+- [On the Impossibility of Unbiased and Length-Invariant Policy Optimization with Outcome Rewards](https://arxiv.org/abs/2607.23364) gives the alpha trade-off used above.
