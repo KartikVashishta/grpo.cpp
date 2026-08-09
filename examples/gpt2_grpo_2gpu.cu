@@ -1,7 +1,8 @@
-// A deliberately small two-process data-parallel check. Each process owns one
-// llm.c model replica; NCCL averages its parameter gradients after every pass.
+// One process owns each llm.c replica. NCCL averages parameter gradients after
+// every pass, so both copies make the same update.
 #define TESTING
 #include "train_gpt2_fp32.cu"
+#include "gpt2_common.cuh"
 
 #include "grpo/grpo_loss.hpp"
 #include "grpo/grpo_loss_cuda.cuh"
@@ -34,17 +35,17 @@
     } while(0)
 
 namespace {
+    using gpt2_example::Task;
+    using gpt2_example::copy_logits;
+    using gpt2_example::row_logsumexp;
+    using gpt2_example::sample_row;
+
     constexpr int world_size=2;
     constexpr int task_count=4;
     constexpr int local_G=8;
     constexpr int global_G=world_size*local_G;
     constexpr int T=8;
     constexpr int gpt2_eot=50256;
-
-    struct Task{
-        std::vector<int> tokens;
-        int answer;
-    };
 
     const std::array<Task,task_count> tasks={{
         {{464,3139,286,4881,318},6342},
@@ -66,48 +67,6 @@ namespace {
         double after;
         std::uint64_t parameter_hash;
     };
-
-    double row_logsumexp(const float* row, int V){
-        float maximum=*std::max_element(row,row+V);
-        double sum=0.0;
-        for(int v=0;v<V;v++) sum+=std::exp(static_cast<double>(row[v]-maximum));
-        return static_cast<double>(maximum)+std::log(sum);
-    }
-
-    int sample_row(const float* row, int V, std::mt19937& rng){
-        double lse=row_logsumexp(row,V);
-        std::uniform_real_distribution<double> uniform(0.0,1.0);
-        double coin=uniform(rng),cumulative=0.0;
-        for(int v=0;v<V;v++){
-            cumulative+=std::exp(static_cast<double>(row[v])-lse);
-            if(coin<cumulative) return v;
-        }
-        return V-1;
-    }
-
-    std::vector<int> make_inputs(){
-        std::vector<int> inputs(task_count*local_G*T,gpt2_eot);
-        for(int task=0;task<task_count;task++){
-            for(int g=0;g<local_G;g++){
-                int seq=task*local_G+g;
-                std::copy(
-                    tasks[task].tokens.begin(),tasks[task].tokens.end(),
-                    inputs.begin()+static_cast<size_t>(seq)*T
-                );
-            }
-        }
-        return inputs;
-    }
-
-    std::vector<float> copy_logits(const GPT2& model){
-        size_t count=static_cast<size_t>(model.batch_size)*model.seq_len
-            *model.config.padded_vocab_size;
-        std::vector<float> logits(count);
-        cudaCheck(cudaMemcpy(
-            logits.data(),model.acts.output,count*sizeof(float),cudaMemcpyDeviceToHost
-        ));
-        return logits;
-    }
 
     double target_mean(GPT2& model, std::vector<int>& inputs){
         gpt2_forward(&model,inputs.data(),NULL,task_count*local_G,T);
@@ -237,7 +196,7 @@ namespace {
         setup_cuda(rank,id,comm);
         GPT2 model;
         gpt2_build_from_checkpoint(&model,checkpoint);
-        auto inputs=make_inputs();
+        auto inputs=gpt2_example::make_inputs(tasks,local_G,T,gpt2_eot);
         std::mt19937 rng(42+1000*rank);
         double before=target_mean(model,inputs);
         auto reference_logits=copy_logits(model);

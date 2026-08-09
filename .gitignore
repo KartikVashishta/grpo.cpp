@@ -1,2 +1,3 @@
-build/
+/build*/
+/gpt2_124M.bin
 .DS_Store

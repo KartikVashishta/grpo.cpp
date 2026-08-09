@@ -7,7 +7,7 @@
 #include <random>
 #include <vector>
 
-// L^(alpha-1) from https://arxiv.org/abs/2607.23364
+// L^(alpha-1) weighting from https://arxiv.org/abs/2607.23364
 
 namespace {
     constexpr int groups=100000;

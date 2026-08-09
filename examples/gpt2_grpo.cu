@@ -1,7 +1,8 @@
-// The GPT-2 forward/backward below comes from llm.c at the commit pinned in
-// CMakeLists.txt. This file only supplies the rollout and GRPO training loop.
+// GPT-2 forward/backward comes from the llm.c commit pinned in CMakeLists.txt.
+// Everything below it is the rollout and GRPO loop.
 #define TESTING
 #include "train_gpt2_fp32.cu"
+#include "gpt2_common.cuh"
 
 #include "grpo/grpo_loss.hpp"
 #include "grpo/grpo_loss_cuda.cuh"
@@ -19,73 +20,29 @@
 #include <vector>
 
 namespace {
+    using gpt2_example::Task;
+    using gpt2_example::copy_logits;
+    using gpt2_example::row_logsumexp;
+    using gpt2_example::sample_row;
+
     constexpr int gpt2_eot=50256;
     constexpr int task_count=8;
 
-    struct Task{
-        const char* prompt;
-        std::vector<int> tokens;
-        int answer;
-    };
-
     const std::array<Task,task_count> tasks={{
-        {"The capital of France is",{464,3139,286,4881,318},6342},
-        {"The color of the sky is",{464,3124,286,262,6766,318},4171},
-        {"The opposite of hot is",{464,6697,286,3024,318},4692},
-        {"Two plus two is",{7571,5556,734,318},1440},
-        {"The first month is",{464,717,1227,318},3269},
-        {"The largest planet is",{464,4387,5440,318},22721},
-        {"The day after Monday is",{464,1110,706,3321,318},3431},
-        {"Water freezes at",{19184,44389,379},6632}
+        {{464,3139,286,4881,318},6342},       // Paris
+        {{464,3124,286,262,6766,318},4171},   // blue
+        {{464,6697,286,3024,318},4692},       // cold
+        {{7571,5556,734,318},1440},            // four
+        {{464,717,1227,318},3269},             // January
+        {{464,4387,5440,318},22721},           // Jupiter
+        {{464,1110,706,3321,318},3431},        // Tuesday
+        {{19184,44389,379},6632}                // zero
     }};
 
     enum class Allocation{
         uniform,
         vigor
     };
-
-    std::vector<int> make_eval_inputs(int G, int T){
-        std::vector<int> inputs(static_cast<size_t>(task_count*G)*T,gpt2_eot);
-        for(int task=0;task<task_count;task++){
-            for(int g=0;g<G;g++){
-                int seq=task*G+g;
-                std::copy(
-                    tasks[task].tokens.begin(),tasks[task].tokens.end(),
-                    inputs.begin()+static_cast<size_t>(seq)*T
-                );
-            }
-        }
-        return inputs;
-    }
-
-    double row_logsumexp(const float* row, int V){
-        float maximum=*std::max_element(row,row+V);
-        double sum=0.0;
-        for(int v=0;v<V;v++) sum+=std::exp(static_cast<double>(row[v]-maximum));
-        return static_cast<double>(maximum)+std::log(sum);
-    }
-
-    int sample_row(const float* row, int V, std::mt19937& rng){
-        double lse=row_logsumexp(row,V);
-        std::uniform_real_distribution<double> uniform(0.0,1.0);
-        double coin=uniform(rng);
-        double cumulative=0.0;
-        for(int v=0;v<V;v++){
-            cumulative+=std::exp(static_cast<double>(row[v])-lse);
-            if(coin<cumulative) return v;
-        }
-        return V-1;
-    }
-
-    std::vector<float> copy_logits(const GPT2& model){
-        size_t count=static_cast<size_t>(model.batch_size)*model.seq_len
-            *model.config.padded_vocab_size;
-        std::vector<float> logits(count);
-        cudaCheck(cudaMemcpy(
-            logits.data(),model.acts.output,count*sizeof(float),cudaMemcpyDeviceToHost
-        ));
-        return logits;
-    }
 
     using Probabilities=std::array<double,task_count>;
 
@@ -293,7 +250,7 @@ int main(int argc, char** argv){
     if(model.config.vocab_size!=50257 || model.config.padded_vocab_size<model.config.vocab_size){
         throw std::runtime_error("this example expects the llm.c GPT-2 124M checkpoint");
     }
-    auto eval_inputs=make_eval_inputs(G,T);
+    auto eval_inputs=gpt2_example::make_inputs(tasks,G,T,gpt2_eot);
     std::mt19937 rng(seed);
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "allocation: " << allocation_name << ", 64 rollouts/update\n";
