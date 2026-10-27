@@ -32,6 +32,7 @@ def build_check():
     import sys
     sys.path.insert(0, "/experiment")
     from parity import fixture
+    from native import prompt_ids
     from transformers import AutoTokenizer
     assert shutil.which("compute-sanitizer")
     assert Path("/build/qwen_probe").is_file()
@@ -40,7 +41,11 @@ def build_check():
     assert Path("/build/qwen_train").is_file()
     assert Path("/build/test_qwen_sampler").is_file()
     config = json.loads(Path("/experiment/config.json").read_text())
-    inputs = fixture(AutoTokenizer.from_pretrained(config["model"], revision=config["model_revision"]))
+    tokenizer = AutoTokenizer.from_pretrained(config["model"], revision=config["model_revision"])
+    inputs = fixture(tokenizer)
+    prompts = prompt_ids(tokenizer, [{"nums": [43, 44, 58], "target": 57},
+                                     {"nums": [17, 57, 81], "target": 41}])
+    assert all(row == inputs["tokens"][i*193:i*193+len(row)] for i, row in enumerate(prompts))
     return {"nvcc": subprocess.check_output(["/usr/local/cuda/bin/nvcc", "--version"], text=True),
             "prompt_lengths": inputs["prompt_lengths"], "completion_lengths": inputs["completion_lengths"]}
 

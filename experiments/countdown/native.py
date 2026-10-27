@@ -71,8 +71,9 @@ class Native:
 
 def prompt_ids(tokenizer, puzzles):
     from task import messages
-    return [tokenizer.apply_chat_template(messages(p), tokenize=True, add_generation_prompt=True,
-                                          enable_thinking=False) for p in puzzles]
+    texts = [tokenizer.apply_chat_template(messages(p), tokenize=False, add_generation_prompt=True,
+                                           enable_thinking=False) for p in puzzles]
+    return [tokenizer.encode(text, add_special_tokens=False) for text in texts]
 
 
 def eos_ids(model):

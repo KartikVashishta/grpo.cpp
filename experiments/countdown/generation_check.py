@@ -93,7 +93,7 @@ def run(output, provenance):
     summary["reload_tokens_match"] = True
     with Native(model_dir, output / "memcheck.log", memcheck=True) as engine:
         engine.call("generate", prompts=[prompts[0]] * 2,
-                    **{**settings, "max_new_tokens": 4})
+                    **{**settings, "max_new_tokens": 4, "temperature": 1.})
         zero = engine.call("update", rewards=[0., 0.], group_size=2)
         assert zero["gradient_norm"] == 0
     assert "ERROR SUMMARY: 0 errors" in (output / "memcheck.log").read_text()

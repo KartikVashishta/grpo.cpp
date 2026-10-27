@@ -177,7 +177,7 @@ class Trainer {
         qwen3_sleep(model);
         prompts = std::move(input);
         completions = result;
-        pending_update = true;
+        pending_update = temperature == 1.0f;
         json response = {{"completions", result}, {"next_seed", seed},
                          {"seconds", seconds(clock)}, {"active_sizes", active_sizes}};
         if (trace) response["logps"] = logps;
@@ -223,7 +223,7 @@ public:
             const auto rewards = request.at("rewards").get<std::vector<float>>();
             const int G = request.at("group_size");
             if (!pending_update || G < 2 || rewards.size() != completions.size() || rewards.size() % G)
-                throw std::runtime_error("Update needs grouped rewards for the last generation");
+                throw std::runtime_error("Update needs grouped rewards from a temperature-1 generation");
             for (size_t i = 0; i < rewards.size(); ++i) {
                 if (!std::isfinite(rewards[i]) || prompts[i] != prompts[(i/G)*G])
                     throw std::runtime_error("Each reward group must share one prompt");
