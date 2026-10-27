@@ -20,11 +20,13 @@ an advantage. Model and data revisions are in `experiments/countdown/config.json
 - `calibration-h100-03`: adding two format examples gave 36/1,024 correct and
   29/128 mixed-reward groups. Mean length fell from 36.3 to 16.8 tokens.
   69 seconds, about $0.08. Keep this prompt for the training pilot.
+- `train-check-h100-01`: one update completed with nonzero gradients. Saved
+  weights reloaded with identical sampled tokens on 32 development puzzles.
+  Training reserved 11.36 GiB on H100. This checks the path, not convergence.
 - RL.cu is a possible backend, but its checkpoint saver is a stub and its
   default optimizer/KV allocation order needs fixing for 24 GB.
 
-Next: check one training update and checkpoint reload.
-If those work, run the short training pilot. Native integration, final test
+Next: run the 64-update training pilot. Native integration, final test
 evaluation and the 24 GB target remain open. This chat owns integration.
 
 Compute budget: $5 pilot, $15 native comparison, $5 repeat, $5 contingency.

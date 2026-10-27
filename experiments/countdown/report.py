@@ -61,7 +61,7 @@ def make_report(paths, output):
         axes[1].set(xlabel="Completions", title=f"{statuses['correct']}/{len(rows)} answers solve the task")
         axes[2].hist([r["tokens"] for r in rows], bins=np.arange(0, 69, 4), color="#296b78", rwidth=.85)
         axes[2].set(xlabel="Generated tokens, including EOS", ylabel="Completions",
-                    title=f"{sum(not r['eos'] for r in rows)} answers reach the cap")
+                    title=f"{sum(not r['eos'] for r in rows)} truncated answers")
         fig.suptitle("Qwen3-0.6B · Countdown calibration · 128 prompts × 8 responses", fontsize=13)
         save(fig, f"{run['name']}-calibration")
 

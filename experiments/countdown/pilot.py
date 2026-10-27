@@ -21,6 +21,8 @@ def summarize(records):
     for row in records:
         groups[row["id"]].append(row["reward"])
     count = len(records)
+    statuses = Counter(r["status"] for r in records)
+    valid = statuses["correct"] + statuses["wrong_value"]
     return {
         "completions": count, "prompts": len(groups),
         "accuracy": sum(r["reward"] for r in records) / count,
@@ -28,7 +30,9 @@ def summarize(records):
         "mean_tokens": sum(r["tokens"] for r in records) / count,
         "generated_tokens": sum(r["tokens"] for r in records),
         "truncated": sum(not r["eos"] for r in records),
-        "statuses": dict(Counter(r["status"] for r in records)),
+        "valid_expression_rate": valid / count,
+        "accuracy_given_valid_expression": statuses["correct"] / valid if valid else None,
+        "statuses": dict(statuses),
     }
 
 
