@@ -35,6 +35,7 @@ def build_check():
     from native import prompt_ids
     from transformers import AutoTokenizer
     assert shutil.which("compute-sanitizer")
+    assert "--log-file" in subprocess.check_output(["compute-sanitizer", "--help"], text=True)
     assert Path("/build/qwen_probe").is_file()
     assert Path("/build/test_qwen_embedding").is_file()
     assert Path("/build/test_qwen_optimizer").is_file()

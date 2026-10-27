@@ -12,7 +12,8 @@ class Native:
     def __init__(self, model, log, learning_rate=1e-6, memcheck=False):
         command = ["/build/qwen_train", str(model), str(learning_rate)]
         if memcheck:
-            command = ["compute-sanitizer", "--tool", "memcheck", "--error-exitcode", "9"] + command
+            command = ["compute-sanitizer", "--tool", "memcheck", "--error-exitcode", "9",
+                       "--log-file", str(Path(log).with_suffix(".sanitizer.log"))] + command
         self.log = Path(log).open("w")
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.log, bufsize=0)
