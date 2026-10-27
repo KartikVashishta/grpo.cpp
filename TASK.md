@@ -15,16 +15,18 @@ in `experiments/countdown/config.json`.
   native and 1.965 seconds TRL for forward/loss/backward (`fixed-work-h100-02`,
   `9b97b95`). Fifteen samples each; weights fixed. Precision and bookkeeping
   differ. The 4.92% norm gap checks scaling, not full-gradient parity.
-- L4 and A10 passed generation, backward, reload and memcheck. The A10
-  reference training run is finishing; the matched native run comes next.
+- L4 and A10 passed generation, backward, reload and memcheck. Both native
+  A10 runs finished: 98/256 and 84/256 development answers in 143 and 131
+  seconds. The first A10 reference reached 90/256 in 439 seconds; its second
+  seed is running. Native sampled device usage stayed around 10.27 GiB.
 
 The native runs learn and cost less here, but TRL has higher final-test scores.
 Raw answers, earlier failures and measurements stay in `results.tar.gz`.
 The report shows both seeds and lets you inspect final-test failures too.
 
-Next: finish the A10 comparison and its final test, update the plots and check
-the run instructions. H100 results do not establish 24 GB training performance.
+Next: finish the second A10 reference and test all four final checkpoints on
+A10, then update the plots. The recipe and 64-update stop stay fixed.
 
-Twenty completed GPU runs total about $2.06 at listed rates, excluding builds
+Twenty-three completed GPU runs total about $2.32 at listed rates, excluding builds
 and startup. Budget caps remain $5 pilot, $15 native comparison, $5 repeat and
 $5 contingency.

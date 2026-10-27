@@ -266,6 +266,10 @@ puzzles and rewards through `native.py`; `native_train.py` uses the same exact
 verifier as the pilot. Checkpoints and raw answers stay in the Modal volume;
 small results are copied to `runs/countdown/`.
 
+To change the task, start with `messages()` and `verify()` in `task.py`.
+The model process accepts token IDs for generation and one reward per response
+for the update. Prompt construction and reward calculation need no CUDA changes.
+
 `native-h100-01` (`12d5c57`) went from 15 to 87 correct development answers:
 80 puzzles improved and eight regressed. The score dipped at update 32. Of
 256 training groups, 73 had mixed rewards. Native checkpoint reload reproduced
