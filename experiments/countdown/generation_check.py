@@ -9,6 +9,7 @@ import time
 from native import Native, eos_ids, prompt_ids
 from parity import prepare
 from task import verify
+from update_check import optimizer_check
 
 
 LIMITS = {"cached_logp_max_abs": .05, "cached_logp_rms": .015,
@@ -28,6 +29,10 @@ def run(output, provenance):
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     subprocess.run(["/build/test_qwen_sampler"], check=True, timeout=60,
                    stdout=(output / "sampler.txt").open("w"), stderr=subprocess.STDOUT)
+    subprocess.run(["/build/test_qwen_embedding"], check=True, timeout=60,
+                   stdout=(output / "embedding.txt").open("w"), stderr=subprocess.STDOUT)
+    checks = optimizer_check(output)
+    (output / "optimizer-check.json").write_text(json.dumps(checks, indent=2) + "\n")
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     puzzles = [{"nums": [43, 44, 58], "target": 57}, {"nums": [17, 57, 81], "target": 41},
                {"nums": [2, 3, 10], "target": 35}, {"nums": [1, 11, 99], "target": 9}]

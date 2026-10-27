@@ -13,31 +13,31 @@ from pilot import append_json, summarize
 from task import verify
 
 
-def run(output, provenance, steps=64):
-    from transformers import AutoTokenizer
-
-    started = time.perf_counter()
-    config = json.loads(Path("/experiment/config.json").read_text())
-    config["max_steps"] = steps
-    if config["seed"] != 42 or not 1 <= steps <= 64:
-        raise ValueError("This comparison replays the 64-step seed-42 reference order")
+def training_data(experiment, data, steps, reference_run):
+    config = json.loads((experiment / "config.json").read_text())
+    with tarfile.open(experiment / "results.tar.gz") as archive:
+        rollout_content = archive.extractfile(f"{reference_run}/rollouts.jsonl").read()
+        reference_metadata = json.load(archive.extractfile(f"{reference_run}/metadata.json"))
+    saved = reference_metadata["config"]
+    if any(saved[key] != value for key, value in config.items() if key not in ("seed", "max_steps")):
+        raise ValueError("Reference run uses a different recipe")
+    if not 1 <= steps <= min(64, saved["max_steps"]):
+        raise ValueError("Requested steps exceed the saved reference run")
+    config.update(seed=saved["seed"], max_steps=steps)
     recipe = {"group_size": 8, "temperature": 1., "top_p": 1., "top_k": 0,
               "beta": 0., "loss_type": "grpo", "scale_rewards": "none"}
     if any(config[key] != value for key, value in recipe.items()):
         raise ValueError("The native comparison needs the frozen pilot recipe")
-    model_dir, _, _, _ = prepare(output, provenance, limits={},
-        reference_description="Native GRPO, centered rewards, one pass, FP16 model and FP32 Adam masters")
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    manifest = json.loads(Path("/experiment/data_manifest.json").read_text())
+    manifest = json.loads((experiment / "data_manifest.json").read_text())
+    if reference_metadata["data"] != manifest:
+        raise ValueError("Reference run uses different splits")
     splits = {}
     for name in ("train", "dev"):
-        content = (Path("/data") / f"{name}.jsonl").read_bytes()
+        content = (data / f"{name}.jsonl").read_bytes()
         if hashlib.sha256(content).hexdigest() != manifest["splits"][name]["sha256"]:
             raise ValueError(f"Split hash mismatch: {name}")
         splits[name] = [json.loads(line) for line in content.splitlines()]
-    with tarfile.open("/experiment/results.tar.gz") as archive:
-        content = archive.extractfile("reference-h100-01/rollouts.jsonl").read()
-    reference = [json.loads(line) for line in content.splitlines()]
+    reference = [json.loads(line) for line in rollout_content.splitlines()]
     train = {p["id"]: p for p in splits["train"]}
     schedule = []
     for step in range(steps):
@@ -48,13 +48,27 @@ def run(output, provenance, steps=64):
         if any(len(set(ids[i:i+8])) != 1 for i in range(0, 32, 8)):
             raise ValueError("Reference groups do not contain eight responses per prompt")
         schedule.append([train[key] for key in ids[::8]])
+    order = {"run": reference_run, "rollouts_sha256": hashlib.sha256(rollout_content).hexdigest()}
+    return config, manifest, splits, schedule, order
+
+
+def run(output, provenance, steps=64, reference_run="reference-h100-01", gpu_rate=.001097,
+        max_seconds=900):
+    from transformers import AutoTokenizer
+
+    started = time.perf_counter()
+    config, manifest, splits, schedule, order = training_data(
+        Path("/experiment"), Path("/data"), steps, reference_run)
+    model_dir, _, _, _ = prepare(output, provenance, limits={},
+        reference_description="Native GRPO, centered rewards, one pass, FP16 model and FP32 Adam masters")
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
     metadata = json.loads((output / "metadata.json").read_text())
     metadata.update(config=config, mode="train", data=manifest,
         binary_sha256=hashlib.sha256(Path("/build/qwen_train").read_bytes()).hexdigest(),
-        prompt_order={"run": "reference-h100-01", "rollouts_sha256": hashlib.sha256(content).hexdigest()},
+        prompt_order=order,
         memory_method="cudaMemGetInfo after allocation, generation and training stages; sampled whole-device usage",
         timing_method="Native synchronized stage times; evaluation, checkpoint and load include Python wall time",
-        rates_usd_per_second={"gpu": .001097, "cpu_core": .0000131, "ram_gib": .00000222},
+        rates_usd_per_second={"gpu": gpu_rate, "cpu_core": .0000131, "ram_gib": .00000222},
         cpu_cores=2, ram_gib=16)
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     stages = defaultdict(float)
@@ -104,8 +118,8 @@ def run(output, provenance, steps=64):
                     stages["checkpoint"] += time.perf_counter() - tick
             if step == steps:
                 break
-            if time.perf_counter() - started > 900:
-                raise TimeoutError("Native training exceeded 15 minutes")
+            if time.perf_counter() - started > max_seconds:
+                raise TimeoutError(f"Native training exceeded {max_seconds} seconds")
             batch = schedule[step]
             prompts = [row for row in prompt_ids(tokenizer, batch) for _ in range(8)]
             tick = time.perf_counter()
@@ -140,5 +154,5 @@ def run(output, provenance, steps=64):
     summary = {"passed": True, "status": "complete", "mode": "train", "steps_completed": steps,
                "steps_requested": steps, "elapsed_seconds": elapsed,
                "sampled_device_used_bytes": training_peak, "stage_seconds": dict(stages),
-               "estimated_compute_usd": elapsed * (.001097 + 2*.0000131 + 16*.00000222)}
+               "estimated_compute_usd": elapsed * (gpu_rate + 2*.0000131 + 16*.00000222)}
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

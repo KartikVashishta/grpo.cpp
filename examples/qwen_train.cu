@@ -219,6 +219,13 @@ public:
     Trainer(const std::string& path, float learning_rate) : source(path) {
         if (!std::isfinite(learning_rate) || learning_rate <= 0)
             throw std::runtime_error("Learning rate must be positive");
+        cudaDeviceProp device{};
+        CUDA_CHECK(cudaGetDeviceProperties(&device, 0));
+        if (device.major < 8 || device.sharedMemPerBlockOptin < 96704)
+            throw std::runtime_error("Qwen needs SM80 or newer and 96,704 bytes of shared memory per block");
+        std::cerr << "GPU: " << device.name << ", SM" << device.major << device.minor
+                  << ", " << device.totalGlobalMem << " bytes, " << device.sharedMemPerBlockOptin
+                  << " bytes shared memory per block\n";
         model = new Qwen3Model{};
         model->config = load_config(source);
         std::vector<float> master;

@@ -12,6 +12,7 @@ HERE = Path(__file__).resolve().parent if modal.is_local() else Path("/experimen
 ROOT = HERE.parent.parent if modal.is_local() else Path("/src")
 DATA = ROOT / "runs/countdown/data" if modal.is_local() else Path("/data")
 app = modal.App("grpo-native")
+RATES = {"L4": .000222, "A10": .000306, "H100": .001097}
 volume = modal.Volume.from_name("grpo-countdown")
 image = (modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu24.04", add_python="3.11")
          .apt_install("cmake", "ninja-build", "g++", "patch", "ca-certificates")
@@ -22,7 +23,7 @@ for directory in ("cmake", "include", "src", "tests", "bench", "examples"):
     image = image.add_local_dir(ROOT / directory, "/src/" + directory,
                                 ignore=["__pycache__", ".DS_Store"], copy=True)
 image = (image.run_commands(
-    "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON -DCMAKE_CUDA_ARCHITECTURES=90",
+    "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON '-DCMAKE_CUDA_ARCHITECTURES=86;89;90'",
     "cmake --build /build --target qwen_train qwen_probe test_qwen_sampler test_qwen_embedding test_qwen_optimizer bench_grpo_loss_cuda -j2")
     .add_local_dir(HERE, "/experiment", ignore=["__pycache__", ".DS_Store"])
     .add_local_dir(DATA, "/data", ignore=["source.parquet", ".DS_Store"]))
@@ -43,6 +44,8 @@ def build_check():
     assert Path("/build/test_qwen_optimizer").is_file()
     assert Path("/build/qwen_train").is_file()
     assert Path("/build/test_qwen_sampler").is_file()
+    architectures = subprocess.check_output(["cuobjdump", "--list-elf", "/build/qwen_train"], text=True)
+    assert all(f"sm_{arch}" in architectures for arch in (86, 89, 90))
     config = json.loads(Path("/experiment/config.json").read_text())
     tokenizer = AutoTokenizer.from_pretrained(config["model"], revision=config["model_revision"])
     inputs = fixture(tokenizer)
@@ -56,7 +59,7 @@ def build_check():
 @app.function(image=image, gpu="H100", cpu=(2, 2), memory=(16384, 16384),
               timeout=1200, retries=0, max_containers=1, scaledown_window=2,
               volumes={"/artifacts": volume})
-def execute(run_id, provenance, mode, steps):
+def execute(run_id, provenance, mode, steps, gpu, reference_run):
     import sys
     sys.path.insert(0, "/experiment")
     if mode == "parity":
@@ -74,7 +77,8 @@ def execute(run_id, provenance, mode, steps):
     started = time.perf_counter()
     try:
         if mode == "train":
-            run(output, provenance, steps)
+            run(output, provenance, steps, reference_run, RATES[gpu],
+                max_seconds=900 if gpu == "H100" else 3000)
         else:
             run(output, provenance)
     except Exception as error:
@@ -89,7 +93,8 @@ def execute(run_id, provenance, mode, steps):
         elapsed = time.perf_counter() - started
         (output / "container.json").write_text(json.dumps({
             "function_seconds": elapsed,
-            "estimated_compute_usd": elapsed * (0.001097 + 2*0.0000131 + 16*0.00000222),
+            "gpu": gpu,
+            "estimated_compute_usd": elapsed * (RATES[gpu] + 2*0.0000131 + 16*0.00000222),
             "note": "Function time including artifact commit; excludes startup, image build, storage and network."
         }, indent=2) + "\n")
         volume.commit()
@@ -97,9 +102,12 @@ def execute(run_id, provenance, mode, steps):
 
 
 @app.local_entrypoint()
-def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps: int = 64):
+def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps: int = 64,
+         gpu: str = "H100", reference_run: str = "reference-h100-01"):
     if mode not in ("parity", "update", "generation", "benchmark", "train") or not 1 <= steps <= 64:
         raise ValueError("Use parity, update, generation, benchmark or train, with 1 to 64 steps")
+    if gpu not in RATES:
+        raise ValueError("Use L4, A10 or H100")
     if build_only:
         print(build_check.remote())
         return
@@ -108,6 +116,11 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps
     output = ROOT / "runs/countdown" / run_id
     if output.exists():
         raise ValueError(f"Run already exists: {output}")
+    if mode == "train":
+        import sys
+        sys.path.insert(0, str(HERE))
+        from native_train import training_data
+        training_data(HERE, DATA, steps, reference_run)
     files = [ROOT / "CMakeLists.txt"]
     for directory in ("cmake", "include", "src", "tests", "bench", "examples", "experiments/countdown"):
         files.extend(p for p in (ROOT / directory).rglob("*")
@@ -117,7 +130,8 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "files_sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)},
     }
-    result = execute.remote(run_id, provenance, mode, steps)
+    function = execute.with_options(gpu=gpu, timeout=1200 if gpu == "H100" else 3600)
+    result = function.remote(run_id, provenance, mode, steps, gpu, reference_run)
     output.mkdir(parents=True)
     for name, content in result.items():
         (output / name).write_text(content)
