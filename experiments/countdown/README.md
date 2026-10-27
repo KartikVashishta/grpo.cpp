@@ -122,14 +122,27 @@ The final weights are in the `grpo-countdown` Modal volume at
 prompt scored 0/1,024; two format examples gave 36/1,024 and 29 mixed groups.
 The examples are absent from all four data splits.
 
-## Native backend under review
+## Native model check
 
 [`RL.cu` at `77ecd83`](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6)
-provides an MIT-licensed Qwen forward/backward path. Its selected-token
-log-probability interface fits the C++ loss. Before adopting it, check gradient
-and tokenizer parity, reserve optimizer memory before allocating KV cache, and
-implement real checkpoint export. Its existing checkpoint saver is a stub.
-No backend code has been copied and no native performance claim is established.
+provides the MIT-licensed model and kernels. CMake fetches that revision; a
+small patch checks weight shapes, dtypes and file bounds, handles FP32 weights,
+and rejects unsupported model configurations. The upstream trainer is unused.
+
+```bash
+modal run experiments/countdown/native_run.py --build-only
+modal run experiments/countdown/native_run.py --run-id native-parity-01
+```
+
+The first command compiles on CPU. The second compares two padded Countdown
+sequences with PyTorch on an H100: selected log probabilities, every parameter
+gradient, loss scaling, microbatch accumulation, changed padding and FP32
+weight loading. It includes EOS and crosses attention and vocabulary-head
+chunk boundaries. CUDA memcheck runs on the scaled case. Fixed tolerances
+live in `parity.py`; a failed comparison exits nonzero after saving results.
+Large gradient dumps are temporary. Measurements stay in `runs/countdown/`.
+
+Native training, checkpoint export and the 24 GB comparison are still pending.
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),
 [Countdown data](https://huggingface.co/datasets/Jiayi-Pan/Countdown-Tasks-3to4/tree/408f70d177020686d34a56bba5952feb45aaaee4),

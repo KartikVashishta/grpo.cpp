@@ -30,10 +30,14 @@ endif()
 
 option(GRPO_USE_CUDA "Build the CUDA kernels and benchmark" OFF)
 option(GRPO_BUILD_GPT2 "Build the optional llm.c GPT-2 example" OFF)
+option(GRPO_BUILD_QWEN "Build the Qwen3-0.6B CUDA checks" OFF)
 option(GRPO_BUILD_DISTRIBUTED "Build the optional two-GPU GPT-2 example" OFF)
 
 if(GRPO_BUILD_GPT2 AND NOT GRPO_USE_CUDA)
     message(FATAL_ERROR "GRPO_BUILD_GPT2 requires GRPO_USE_CUDA=ON")
+endif()
+if(GRPO_BUILD_QWEN AND NOT GRPO_USE_CUDA)
+    message(FATAL_ERROR "GRPO_BUILD_QWEN requires GRPO_USE_CUDA=ON")
 endif()
 if(GRPO_BUILD_DISTRIBUTED AND NOT GRPO_BUILD_GPT2)
     message(FATAL_ERROR "GRPO_BUILD_DISTRIBUTED requires GRPO_BUILD_GPT2=ON")
@@ -106,5 +110,8 @@ if(GRPO_USE_CUDA)
         add_test(NAME grpo_loss_cuda
             COMMAND bench_grpo_loss_cuda --check-only
         )
+    endif()
+    if(GRPO_BUILD_QWEN)
+        include(cmake/Qwen.cmake)
     endif()
 endif()

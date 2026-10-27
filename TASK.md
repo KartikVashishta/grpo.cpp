@@ -19,10 +19,12 @@ memory, cost and a repeat seed. Pins are in `experiments/countdown/config.json`.
   an H100 startup failure and other startup charges are not in that estimate.
   The failed job was stopped and its remote-import bug fixed. L4 stayed queued.
 
-Next: compare the native Qwen forward values and gradients with PyTorch.
-RL.cu's loader needs strict shape/dtype checks; FP16 gradient underflow also
-needs a measured check. Its checkpoint saver is a stub. Use the pinned source
-at `77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6`.
+The native comparison is written; CUDA compilation and numerical results are
+still pending. It checks forward values, all gradients, loss scaling, padding,
+microbatches and FP32 weight loading against PyTorch. RL.cu is pinned at
+`77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6`, with loader validation patched.
+Next: finish the CPU build, then run the bounded H100 comparison. Native
+checkpoint export still needs implementing; the upstream saver is a stub.
 
 Native learning, the 24 GB run, final testing and the repeat seed remain open.
 This chat owns integration. Budget: $5 pilot, $15 native comparison, $5 repeat,

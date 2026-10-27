@@ -63,11 +63,12 @@ class CountdownTest(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec("modal"), "requires the Modal Python environment")
     def test_runner_imports_at_the_remote_path(self):
-        path = Path(__file__).resolve().parents[1] / "experiments/countdown/modal_run.py"
-        remote = "/root/modal_run.py"
-        with patch("modal.is_local", return_value=False):
-            exec(compile(path.read_text(), remote, "exec"),
-                 {"__name__": "modal_run", "__file__": remote})
+        for name in ("modal_run", "native_run"):
+            path = Path(__file__).resolve().parents[1] / f"experiments/countdown/{name}.py"
+            remote = f"/root/{name}.py"
+            with self.subTest(name=name), patch("modal.is_local", return_value=False):
+                exec(compile(path.read_text(), remote, "exec"),
+                     {"__name__": name, "__file__": remote})
 
 
 if __name__ == "__main__":

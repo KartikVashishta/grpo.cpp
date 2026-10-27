@@ -1,0 +1,198 @@
+--- a/src/kernels/weights.cpp
++++ b/src/kernels/weights.cpp
+@@ -7,6 +7,8 @@
+ #include <filesystem>
+ #include <cstring>
+ #include <cstdio>
++#include <cmath>
++#include <stdexcept>
+ #include <sys/mman.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
+@@ -68,7 +70,8 @@
+     }
+ 
+     struct stat st;
+-    fstat(sf.fd, &st);
++    if (fstat(sf.fd, &st) != 0 || st.st_size < 8)
++        throw std::runtime_error("Truncated safetensors file: " + path);
+     sf.file_size = st.st_size;
+ 
+     sf.mapped = mmap(nullptr, sf.file_size, PROT_READ, MAP_PRIVATE, sf.fd, 0);
+@@ -80,6 +83,9 @@
+     // Read 8-byte header size (little-endian uint64)
+     memcpy(&sf.header_size, sf.mapped, sizeof(uint64_t));
+ 
++    if (sf.header_size > sf.file_size - 8)
++        throw std::runtime_error("Truncated safetensors header: " + path);
++
+     // Parse JSON header
+     const char* json_start = (const char*)sf.mapped + 8;
+     sf.header = json::parse(json_start, json_start + sf.header_size);
+@@ -100,6 +106,8 @@
+     size_t start = offsets[0].get<size_t>();
+     size_t end   = offsets[1].get<size_t>();
+ 
++    if (start > end || end > sf.file_size - 8 - sf.header_size)
++        throw std::runtime_error("Invalid tensor offsets: " + name);
+     if (out_bytes) *out_bytes = end - start;
+     return sf.data_start + start;
+ }
+@@ -108,11 +116,7 @@
+ static size_t dtype_size(const std::string& dtype) {
+     if (dtype == "BF16" || dtype == "F16") return 2;
+     if (dtype == "F32") return 4;
+-    if (dtype == "F64") return 8;
+-    if (dtype == "I32") return 4;
+-    if (dtype == "I64") return 8;
+-    fprintf(stderr, "Unknown dtype: %s\n", dtype.c_str());
+-    return 2;
++    throw std::runtime_error("Unsupported weight dtype: " + dtype);
+ }
+ 
+ // ============================================================================
+@@ -218,59 +222,62 @@
+ 
+     printf("[WEIGHTS] Loading from %zu safetensors file(s)...\n", files.size());
+ 
+-    bool is_bf16 = (cfg.torch_dtype == "bfloat16");
+-
+     // Helper: find tensor data in safetensors
+-    auto find_tensor = [&](const std::string& name, size_t expected_elements,
++    auto find_tensor = [&](const std::string& name, const std::vector<int>& shape,
+                            const void** out_data, size_t* out_num_elements,
+                            std::string* out_dtype) -> bool {
+         auto it = tensor_to_file.find(name);
+         if (it == tensor_to_file.end()) {
+-            fprintf(stderr, "WARNING: tensor '%s' not found in safetensors\n", name.c_str());
+-            return false;
++            throw std::runtime_error("Missing tensor: " + name);
+         }
+         size_t file_idx = it->second;
+         size_t bytes = 0;
+         *out_data = get_tensor_data(files[file_idx], name, &bytes);
+         if (!*out_data) {
+-            fprintf(stderr, "WARNING: tensor '%s' data not found\n", name.c_str());
+-            return false;
++            throw std::runtime_error("Missing tensor data: " + name);
+         }
+         auto& info = files[file_idx].header[name];
+         *out_dtype = info["dtype"].get<std::string>();
+-        *out_num_elements = bytes / dtype_size(*out_dtype);
+-        if (expected_elements > 0 && *out_num_elements != expected_elements) {
+-            fprintf(stderr, "WARNING: '%s' expected %zu elements, got %zu\n",
+-                    name.c_str(), expected_elements, *out_num_elements);
+-        }
++        size_t expected = 1;
++        for (int dim : shape) expected *= dim;
++        if (info["shape"].get<std::vector<int>>() != shape ||
++            bytes != expected * dtype_size(*out_dtype))
++            throw std::runtime_error("Wrong tensor shape or byte count: " + name);
++        *out_num_elements = expected;
+         return true;
+     };
+ 
+     // Convert and write tensor into FP16 staging buffer at given offset
+-    auto stage_fp16 = [&](const std::string& name, size_t expected, half* dst) {
++    auto stage_fp16 = [&](const std::string& name, const std::vector<int>& shape, half* dst) {
+         const void* data; size_t n; std::string dtype;
+-        if (!find_tensor(name, expected, &data, &n, &dtype)) return;
+-        if (is_bf16 && dtype == "BF16") {
++        if (!find_tensor(name, shape, &data, &n, &dtype)) return;
++        if (dtype == "BF16") {
+             bf16_to_fp16(dst, data, n);
+         } else if (dtype == "F16") {
+             memcpy(dst, data, n * sizeof(half));
+-        } else {
+-            fprintf(stderr, "WARNING: unexpected dtype '%s' for FP16 tensor '%s'\n",
+-                    dtype.c_str(), name.c_str());
+-        }
++        } else if (dtype == "F32") {
++            const float* src = static_cast<const float*>(data);
++            for (size_t i = 0; i < n; ++i) dst[i] = __float2half(src[i]);
++        }
++        for (size_t i = 0; i < n; ++i)
++            if (!std::isfinite(__half2float(dst[i])))
++                throw std::runtime_error("Nonfinite FP16 weight: " + name);
+     };
+ 
+     // Convert and write tensor into FP32 staging buffer at given offset
+-    auto stage_fp32 = [&](const std::string& name, size_t expected, float* dst) {
++    auto stage_fp32 = [&](const std::string& name, const std::vector<int>& shape, float* dst) {
+         const void* data; size_t n; std::string dtype;
+-        if (!find_tensor(name, expected, &data, &n, &dtype)) return;
+-        if (is_bf16 && dtype == "BF16") {
++        if (!find_tensor(name, shape, &data, &n, &dtype)) return;
++        if (dtype == "BF16") {
+             bf16_to_fp32(dst, data, n);
+         } else if (dtype == "F32") {
+             memcpy(dst, data, n * sizeof(float));
+         } else if (dtype == "F16") {
+             fp16_to_fp32_cpu(dst, data, n);
+         }
++        for (size_t i = 0; i < n; ++i)
++            if (!std::isfinite(dst[i]))
++                throw std::runtime_error("Nonfinite FP32 weight: " + name);
+     };
+ 
+     // --- Stage FP16 tensors into host buffer ---
+@@ -278,27 +285,27 @@
+     half* hp = h_fp16.data();
+     for (int i = 0; i < L; i++) {
+         std::string prefix = "model.layers." + std::to_string(i);
+-        stage_fp16(prefix + ".self_attn.q_proj.weight",    q_proj_sz,    hp); hp += q_proj_sz;
+-        stage_fp16(prefix + ".self_attn.k_proj.weight",    k_proj_sz,    hp); hp += k_proj_sz;
+-        stage_fp16(prefix + ".self_attn.v_proj.weight",    v_proj_sz,    hp); hp += v_proj_sz;
+-        stage_fp16(prefix + ".self_attn.o_proj.weight",    o_proj_sz,    hp); hp += o_proj_sz;
+-        stage_fp16(prefix + ".mlp.gate_proj.weight",       gate_proj_sz, hp); hp += gate_proj_sz;
+-        stage_fp16(prefix + ".mlp.up_proj.weight",         up_proj_sz,   hp); hp += up_proj_sz;
+-        stage_fp16(prefix + ".mlp.down_proj.weight",       down_proj_sz, hp); hp += down_proj_sz;
+-    }
+-    stage_fp16("model.embed_tokens.weight", embed_sz, hp);
++        stage_fp16(prefix + ".self_attn.q_proj.weight",    {cfg.q_dim, H},    hp); hp += q_proj_sz;
++        stage_fp16(prefix + ".self_attn.k_proj.weight",    {cfg.kv_dim, H},    hp); hp += k_proj_sz;
++        stage_fp16(prefix + ".self_attn.v_proj.weight",    {cfg.kv_dim, H},    hp); hp += v_proj_sz;
++        stage_fp16(prefix + ".self_attn.o_proj.weight",    {H, cfg.q_dim},    hp); hp += o_proj_sz;
++        stage_fp16(prefix + ".mlp.gate_proj.weight",       {cfg.intermediate_size, H}, hp); hp += gate_proj_sz;
++        stage_fp16(prefix + ".mlp.up_proj.weight",         {cfg.intermediate_size, H},   hp); hp += up_proj_sz;
++        stage_fp16(prefix + ".mlp.down_proj.weight",       {H, cfg.intermediate_size}, hp); hp += down_proj_sz;
++    }
++    stage_fp16("model.embed_tokens.weight", {cfg.vocab_size, H}, hp);
+ 
+     // --- Stage FP32 tensors into host buffer ---
+     // Layout: per-layer [input_norm, q_norm, k_norm, post_attn_norm], then final_norm
+     float* fp = h_fp32.data();
+     for (int i = 0; i < L; i++) {
+         std::string prefix = "model.layers." + std::to_string(i);
+-        stage_fp32(prefix + ".input_layernorm.weight",          H,           fp); fp += H;
+-        stage_fp32(prefix + ".self_attn.q_norm.weight",         cfg.head_dim, fp); fp += cfg.head_dim;
+-        stage_fp32(prefix + ".self_attn.k_norm.weight",         cfg.head_dim, fp); fp += cfg.head_dim;
+-        stage_fp32(prefix + ".post_attention_layernorm.weight",  H,           fp); fp += H;
+-    }
+-    stage_fp32("model.norm.weight", final_norm_sz, fp);
++        stage_fp32(prefix + ".input_layernorm.weight",          {H},           fp); fp += H;
++        stage_fp32(prefix + ".self_attn.q_norm.weight",         {cfg.head_dim}, fp); fp += cfg.head_dim;
++        stage_fp32(prefix + ".self_attn.k_norm.weight",         {cfg.head_dim}, fp); fp += cfg.head_dim;
++        stage_fp32(prefix + ".post_attention_layernorm.weight",  {H},           fp); fp += H;
++    }
++    stage_fp32("model.norm.weight", {H}, fp);
+ 
+     // --- One cudaMalloc + cudaMemcpy per pool ---
+     size_t fp16_bytes = total_fp16 * sizeof(half);
+--- a/src/kernels/config.cpp
++++ b/src/kernels/config.cpp
+@@ -34,6 +34,14 @@
+     if (j.contains("torch_dtype"))
+         cfg.torch_dtype = j["torch_dtype"].get<std::string>();
+ 
++    if (j.value("model_type", "") != "qwen3" || cfg.vocab_size != 151936 ||
++        cfg.hidden_size != 1024 || cfg.intermediate_size != 3072 ||
++        cfg.num_hidden_layers != 28 || cfg.num_attention_heads != 16 ||
++        cfg.num_key_value_heads != 8 || cfg.head_dim != 128 ||
++        !cfg.tie_word_embeddings || cfg.attention_bias || cfg.hidden_act != "silu" ||
++        cfg.max_position_embeddings != 40960 || cfg.rope_theta != 1000000.0f ||
++        cfg.rms_norm_eps != 1e-6f || j.value("use_sliding_window", false))
++        throw std::runtime_error("Only the tied Qwen3-0.6B architecture is supported");
+     cfg.compute_derived();
+ 
+     printf("[CONFIG] %s\n", config_path.c_str());
