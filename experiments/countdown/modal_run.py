@@ -1,4 +1,4 @@
-"""Run one bounded L4 job; credentials come from the local Modal profile."""
+"""Run the Countdown pilot on Modal."""
 
 import hashlib
 import json
@@ -8,15 +8,16 @@ import time
 
 import modal
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+HERE = Path(__file__).resolve().parent if modal.is_local() else Path("/experiment")
+ROOT = HERE.parent.parent
+DATA = ROOT / "runs/countdown/data" if modal.is_local() else Path("/data")
 app = modal.App("grpo-countdown")
 volume = modal.Volume.from_name("grpo-countdown", create_if_missing=True)
 image = (modal.Image.debian_slim(python_version="3.11")
          .pip_install_from_requirements(str(HERE / "requirements.lock"))
          .env({"HF_HOME": "/artifacts/hf", "TOKENIZERS_PARALLELISM": "false"})
          .add_local_dir(HERE, "/experiment", ignore=["__pycache__"])
-         .add_local_dir(ROOT / "runs/countdown/data", "/data", ignore=["source.parquet"]))
+         .add_local_dir(DATA, "/data", ignore=["source.parquet"]))
 
 
 @app.function(image=image, gpu="L4", cpu=(2, 2), memory=(16384, 16384), timeout=3600,

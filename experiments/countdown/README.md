@@ -28,7 +28,6 @@ modal run experiments/countdown/modal_run.py --run-id calibration-01
 modal run experiments/countdown/modal_run.py --run-id reference-01 --mode train --steps 64
 ```
 
-Use an authenticated Modal profile. Credentials never go in the files above.
 Each call runs one L4 with two CPU cores and 16 GiB RAM, no retry, a 60-minute
 timeout and a training stop check after 50 minutes. One hour at the recorded
 rates is about $1.02 for those requested resources, before startup, storage,
@@ -54,7 +53,6 @@ prompt and a 64-token cap. Each optimizer update sees four prompts, with two
 completions per training microbatch. Rewards are centered within each group,
 without standard-deviation scaling. Sequence-mean GRPO, one policy pass and
 zero KL make the first update easy to compare with the existing C++ loss.
-These are pilot settings, not a demonstrated convergence recipe.
 
 Trainable parameters and AdamW state use FP32, with BF16 autocast and gradient
 checkpointing. TRL 1.16's tiled output head is part of the reference. A native
@@ -95,11 +93,6 @@ You can pass just the calibration directory before a training run exists.
 The report saves SVG and PNG figures beside `report.html`. Learning curves
 show sampled development pass@1; their intervals describe uncertainty across
 puzzles, not variation across independent training runs.
-
-Calibration reports the actual fraction of groups containing both successes
-and failures. A good training-reward curve alone does not prove learning:
-development performance must improve, and final testing and an independent
-seed are still required for a release claim.
 
 ## Native backend under review
 

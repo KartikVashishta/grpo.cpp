@@ -1,4 +1,4 @@
-"""Plot saved measurements and make a self-contained answer viewer."""
+"""Plot a Countdown run and browse its saved answers."""
 
 import argparse
 import base64
@@ -92,7 +92,7 @@ def make_report(paths, output):
         axes[0].set(xlabel="Estimated compute cost (USD)", ylabel="Development pass@1 (%)",
                     title="Accuracy against cost", ylim=(0, 100))
         axes[1].set(xlabel="Optimizer updates", ylabel="Mean generated tokens, including EOS",
-                    title="Check whether shorter answers explain the speed")
+                    title="Completion length")
         for ax in axes:
             ax.grid(axis="y", alpha=.15)
             ax.legend(frameon=False, fontsize=8)
@@ -137,15 +137,14 @@ img{width:100%;height:auto;margin:18px 0}table{border-collapse:collapse;width:10
 label{display:block;margin:14px 0}select{max-width:100%;font:inherit;padding:8px;background:white;border:1px solid #aaa;border-radius:4px}
 input{width:100%;max-width:520px;vertical-align:middle}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:18px/1.6 monospace;background:#efeee9;padding:18px}
 .answer{border-top:1px solid #d8d7d3;padding:14px 0}.correct{color:#17616d}.failure{color:#9a452b}.note{font-size:13px;color:#566067}
-</style><h1>Can a small model learn Countdown cheaply?</h1>
-<p>These are recorded Qwen3-0.6B answers and measurements from a single-GPU reference pilot.
-The task accepts one exact expression using every input number once.</p>
+</style><h1>Countdown</h1>
+<p>Qwen3-0.6B, one GPU, exact arithmetic rewards.</p>
 <table><thead><tr><th>Run</th><th>GPU</th><th>Status</th><th>Function time</th><th>Estimated compute</th><th>Peak reserved</th></tr></thead>
 <tbody>TABLE</tbody></table>
 <p class="note">Cost is a rate-based estimate, not a provider invoice. Memory is PyTorch reserved memory;
-training peaks exclude the extra model used to verify checkpoint reload. Native comparison and independent-seed testing are pending.</p>
+training peaks exclude checkpoint-reload verification.</p>
 IMAGES
-<h2>Read the answers</h2><p>Select a puzzle and move through the recorded updates. Failures and regressions stay visible.</p>
+<h2>Answers</h2>
 <label>Run <select id="run"></select></label><label>Puzzle <select id="puzzle"></select></label>
 <label>Recorded update <input id="step" type="range" min="0" value="0"><span id="step-label"></span></label>
 <div id="answers"></div><p class="note">Calibration has eight samples per puzzle. Development evaluation has one.

@@ -1,4 +1,4 @@
-"""A measured Transformers/TRL reference run. This is not the native engine."""
+"""Reference GRPO training with TRL."""
 
 from collections import Counter, defaultdict
 from contextlib import contextmanager
