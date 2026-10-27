@@ -22,7 +22,7 @@ for directory in ("cmake", "include", "src", "tests", "bench", "examples"):
                                 ignore=["__pycache__"], copy=True)
 image = (image.run_commands(
     "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON -DCMAKE_CUDA_ARCHITECTURES=90",
-    "cmake --build /build --target qwen_probe bench_grpo_loss_cuda -j2")
+    "cmake --build /build --target qwen_probe test_qwen_embedding bench_grpo_loss_cuda -j2")
     .add_local_dir(HERE, "/experiment", ignore=["__pycache__"]))
 
 
@@ -35,6 +35,7 @@ def build_check():
     from transformers import AutoTokenizer
     assert shutil.which("compute-sanitizer")
     assert Path("/build/qwen_probe").is_file()
+    assert Path("/build/test_qwen_embedding").is_file()
     config = json.loads(Path("/experiment/config.json").read_text())
     inputs = fixture(AutoTokenizer.from_pretrained(config["model"], revision=config["model_revision"]))
     return {"nvcc": subprocess.check_output(["/usr/local/cuda/bin/nvcc", "--version"], text=True),

@@ -19,12 +19,16 @@ memory, cost and a repeat seed. Pins are in `experiments/countdown/config.json`.
   an H100 startup failure and other startup charges are not in that estimate.
   The failed job was stopped and its remote-import bug fixed. L4 stayed queued.
 
-The native comparison is written; CUDA compilation and numerical results are
-still pending. It checks forward values, all gradients, loss scaling, padding,
-microbatches and FP32 weight loading against PyTorch. RL.cu is pinned at
-`77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6`, with loader validation patched.
-Next: finish the CPU build, then run the bounded H100 comparison. Native
-checkpoint export still needs implementing; the upstream saver is a stub.
+The first native check (`ee27c93`) passed forward/gradient comparison and CUDA
+memcheck. Loss scaling cut relative gradient error from 1.55% to 0.56%.
+The full check failed: repeated runs varied by 0.005%, mainly from FP16 embedding
+atomics. Padding and FP32 loading showed the same variation. The run cost about
+$0.15 for 129 seconds. Raw measurements are in `runs/countdown/native-parity-01`.
+
+The embedding patch now sums repeated rows in FP32 and rounds once, preserving
+the tied head's gradient. Next: rerun the same tolerances and memcheck. This
+simple reduction suits short microbatches; large batches will need a faster one.
+RL.cu remains pinned at `77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6`.
 
 Native learning, the 24 GB run, final testing and the repeat seed remain open.
 This chat owns integration. Budget: $5 pilot, $15 native comparison, $5 repeat,

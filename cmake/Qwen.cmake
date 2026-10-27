@@ -8,7 +8,7 @@ FetchContent_Declare(rlcu
     URL_HASH SHA256=87a3f71cabc6f56db0eb9bbba5a1aca6630804e3988a9410f199dfe58d44fc2f
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     SOURCE_SUBDIR grpo-unused
-    PATCH_COMMAND ${PATCH_EXECUTABLE} -p1 -i ${CMAKE_CURRENT_LIST_DIR}/patches/rlcu-weights.patch
+    PATCH_COMMAND ${PATCH_EXECUTABLE} -p1 -i ${CMAKE_CURRENT_LIST_DIR}/patches/rlcu.patch
 )
 FetchContent_Declare(qwen_json
     URL https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp
@@ -37,3 +37,10 @@ set_target_properties(qwen_cuda PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIR
 add_executable(qwen_probe tests/qwen_probe.cu)
 target_link_libraries(qwen_probe PRIVATE qwen_cuda)
 set_target_properties(qwen_probe PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
+
+add_executable(test_qwen_embedding tests/test_qwen_embedding.cu)
+target_link_libraries(test_qwen_embedding PRIVATE qwen_cuda)
+set_target_properties(test_qwen_embedding PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
+if(BUILD_TESTING)
+    add_test(NAME qwen_embedding COMMAND test_qwen_embedding)
+endif()

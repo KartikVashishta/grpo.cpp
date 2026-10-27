@@ -196,3 +196,49 @@
      cfg.compute_derived();
  
      printf("[CONFIG] %s\n", config_path.c_str());
+--- a/src/kernels/embedding.cu
++++ b/src/kernels/embedding.cu
+@@ -44,7 +44,7 @@
+ 
+ // ============================================================
+ // Backward: dW[token_ids[tok], d] += dOut[tok, d]
+-// Uses atomicAdd(half*) for correctness with duplicate token_ids.
++// One owner per token ID sums repeated rows before rounding to FP16.
+ // Grid: (num_tokens,); Block: (256,)
+ // ============================================================
+ 
+@@ -60,11 +60,19 @@
+ 
+     const int vocab_id = token_ids[tok];
+ 
+-    const half* src = dOut + (long)tok      * hidden_size;
+-    half*       dst = dW   + (long)vocab_id * hidden_size;
++    for (int row = 0; row < tok; ++row)
++        if (token_ids[row] == vocab_id) return;
+ 
+-    for (int d = threadIdx.x; d < hidden_size; d += blockDim.x)
+-        atomicAdd(&dst[d], src[d]);
++    half* dst = dW + (long)vocab_id * hidden_size;
++    // shortcut: scans cost O(unique IDs * tokens * hidden); use a segmented
++    // reduction if training grows beyond the current short microbatches.
++    for (int d = threadIdx.x; d < hidden_size; d += blockDim.x) {
++        float sum = 0.0f;
++        for (int row = tok; row < num_tokens; ++row)
++            if (token_ids[row] == vocab_id)
++                sum += __half2float(dOut[(long)row * hidden_size + d]);
++        dst[d] = __float2half(__half2float(dst[d]) + sum);
++    }
+ }
+ 
+ void launch_embedding_backward(
+--- a/include/kernels/embedding.cuh
++++ b/include/kernels/embedding.cuh
+@@ -15,7 +15,7 @@
+ // Backward pass for embedding: scatter-add gradients into embedding weight table.
+ //   dW[token_ids[tok], d] += dOut[tok, d]
+ // dW must be zeroed by the caller before the first backward call.
+-// Uses atomicAdd(half*) for correctness when multiple tokens share the same vocab_id.
++// Repeated token rows are summed in FP32, then added to dW and rounded once.
+ void launch_embedding_backward(
+     half*        dW,         // [vocab_size, hidden_size] gradient for embedding weight (accumulated)
+     const half*  dOut,       // [num_tokens, hidden_size] upstream gradient

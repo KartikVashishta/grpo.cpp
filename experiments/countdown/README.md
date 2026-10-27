@@ -126,8 +126,8 @@ The examples are absent from all four data splits.
 
 [`RL.cu` at `77ecd83`](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6)
 provides the MIT-licensed model and kernels. CMake fetches that revision; a
-small patch checks weight shapes, dtypes and file bounds, handles FP32 weights,
-and rejects unsupported model configurations. The upstream trainer is unused.
+patch checks weight shapes, dtypes and file bounds, handles FP32 weights,
+and sums repeated-token embedding gradients in FP32. The upstream trainer is unused.
 
 ```bash
 modal run experiments/countdown/native_run.py --build-only
@@ -141,6 +141,9 @@ weight loading. It includes EOS and crosses attention and vocabulary-head
 chunk boundaries. CUDA memcheck runs on the scaled case. Fixed tolerances
 live in `parity.py`; a failed comparison exits nonzero after saving results.
 Large gradient dumps are temporary. Measurements stay in `runs/countdown/`.
+The embedding reduction scans matching rows in order. This keeps short
+microbatches reproducible without a full FP32 vocabulary-gradient buffer;
+large batches will need a segmented reduction.
 
 Native training, checkpoint export and the 24 GB comparison are still pending.
 

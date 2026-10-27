@@ -232,6 +232,8 @@ def run(output, provenance):
     }, indent=2) + "\n")
     subprocess.run(["/build/bench_grpo_loss_cuda", "--check-only"], check=True,
                    stdout=(output / "loss-check.txt").open("w"), stderr=subprocess.STDOUT, timeout=60)
+    subprocess.run(["/build/test_qwen_embedding"], check=True,
+                   stdout=(output / "embedding-check.txt").open("w"), stderr=subprocess.STDOUT, timeout=60)
     summary = {"passed": False, "cases": {}}
     with tempfile.TemporaryDirectory(prefix="qwen-parity-") as tmp:
         tmp = Path(tmp)
@@ -241,6 +243,7 @@ def run(output, provenance):
         reference(model_dir, inputs, specs, counts, tmp / "torch_autocast", autocast=True)
         (output / "torch-autocast.json").write_text(json.dumps(compare(
             tmp / "torch_autocast", tmp / "reference", specs, counts, left_native=False), indent=2) + "\n")
+        shutil.rmtree(tmp / "torch_autocast")
         active = np.asarray(inputs["upstream"]) != 0
         reference_logp = np.array(json.loads((tmp / "reference/logp.json").read_text()))
         for name, scale, microbatch in [("unscaled", 1, 2), ("scaled", 256, 2),
@@ -293,6 +296,7 @@ def run(output, provenance):
                         and result["logp_max_abs"] <= LIMITS["logp_max_abs"]
                         and result["logp_rms"] <= LIMITS["logp_rms"])
             summary["cases"][name] = result
+            print(f"{name}: passed={result['passed']}, logp max error={result['logp_max_abs']:.6f}", flush=True)
             (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
             if name != "scaled":
                 shutil.rmtree(tmp/name)
