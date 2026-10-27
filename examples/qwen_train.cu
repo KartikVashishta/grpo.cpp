@@ -141,6 +141,7 @@ class Trainer {
         std::vector<Sequence*> active;
         for (auto& sequence : sequences) active.push_back(&sequence);
         std::vector<std::vector<double>> logps(input.size());
+        std::vector<json> top_tokens(input.size(), json::array());
         std::vector<int> active_sizes;
         for (int t = 0; t < cap && !active.empty(); ++t) {
             active_sizes.push_back(active.size());
@@ -157,11 +158,26 @@ class Trainer {
                 CUDA_CHECK(cudaMemcpy(host.data(), logits, host.size()*sizeof(half), cudaMemcpyDeviceToHost));
                 for (size_t b = 0; b < active.size(); ++b) {
                     double maximum = -INFINITY, sum = 0;
-                    for (int v = 0; v < V; ++v) maximum = std::max(maximum, double(__half2float(host[b*V+v])));
+                    int first = -1, second = -1;
+                    for (int v = 0; v < V; ++v) {
+                        const double value = __half2float(host[b*V+v]);
+                        if (!std::isfinite(value)) throw std::runtime_error("Nonfinite inference logit");
+                        if (value > maximum) {
+                            second = first;
+                            first = v;
+                            maximum = value;
+                        } else if (second < 0 || value > __half2float(host[b*V+second])) second = v;
+                    }
                     for (int v = 0; v < V; ++v) sum += std::exp(double(__half2float(host[b*V+v])) - maximum);
-                    const double value = __half2float(host[b*V+ids[b]]) - maximum - std::log(sum);
+                    const double selected = __half2float(host[b*V+ids[b]]);
+                    if (temperature == 0 && selected != maximum)
+                        throw std::runtime_error("Greedy sampler did not select a maximum logit");
+                    const double value = selected - maximum - std::log(sum);
                     if (!std::isfinite(value)) throw std::runtime_error("Nonfinite inference probability");
                     logps[active[b]->batch_slot].push_back(value);
+                    top_tokens[active[b]->batch_slot].push_back({{"tokens", {first, second}},
+                        {"logits", {maximum, double(__half2float(host[b*V+second]))}},
+                        {"selected_logit", selected}});
                 }
             }
             for (size_t b = 0; b < active.size(); ++b) active[b]->append_token(ids[b]);
@@ -180,7 +196,10 @@ class Trainer {
         pending_update = temperature == 1.0f;
         json response = {{"completions", result}, {"next_seed", seed},
                          {"seconds", seconds(clock)}, {"active_sizes", active_sizes}};
-        if (trace) response["logps"] = logps;
+        if (trace) {
+            response["logps"] = logps;
+            response["top_tokens"] = top_tokens;
+        }
         return response;
     }
 

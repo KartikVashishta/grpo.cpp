@@ -59,23 +59,35 @@ def run(output, provenance):
         assert summary["cached_logp_max_abs"] <= LIMITS["cached_logp_max_abs"]
         assert summary["cached_logp_rms"] <= LIMITS["cached_logp_rms"]
         summary["compaction_checked"] = True
-        # Greedy batches and single-sequence decoding must follow the same prefix.
-        singles = [engine.call("generate", prompts=[row], **settings)["completions"][0] for row in varied]
+        # Batch size changes FP16 reductions. Check argmax and shared-prefix scores.
+        single_runs = [engine.call("generate", prompts=[row], trace=True, **settings) for row in varied]
+        singles = [row["completions"][0] for row in single_runs]
+        single_scores = engine.call("score", prompts=varied, completions=singles)["logps"]
+        single_error = np.array([a-b for run, score in zip(single_runs, single_scores, strict=True)
+                                 for a, b in zip(run["logps"][0], score, strict=True)])
+        summary["single_logp_max_abs"] = float(abs(single_error).max())
+        summary["single_logp_rms"] = float(np.sqrt(np.mean(single_error**2)))
         summary["greedy_batch_matches_singles"] = singles == generated["completions"]
         divergences = []
         for row, (single, batch) in enumerate(zip(singles, generated["completions"], strict=True)):
             difference = next((i for i, (a, b) in enumerate(zip(single, batch)) if a != b), None)
             if difference is None:
+                assert single == batch
                 continue
             candidates = [single[:difference+1], batch[:difference+1]]
             values = engine.call("score", prompts=[varied[row]] * 2, completions=candidates)["logps"]
             divergences.append({"row": row, "position": difference,
                                 "candidates": candidates, "logps": values,
+                                "single_top": single_runs[row]["top_tokens"][0][difference],
+                                "batch_top": generated["top_tokens"][row][difference],
                                 "last_token_logp_gap": values[0][-1] - values[1][-1]})
-        records.update(singles=singles, greedy_divergences=divergences)
+        records.update(single_runs=single_runs, single_scores=single_scores, greedy_divergences=divergences)
         (output / "generation.json").write_text(json.dumps(records, indent=2) + "\n")
         (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-        assert summary["greedy_batch_matches_singles"]
+        assert summary["single_logp_max_abs"] <= LIMITS["cached_logp_max_abs"]
+        assert summary["single_logp_rms"] <= LIMITS["cached_logp_rms"]
+        assert all(abs(row["last_token_logp_gap"]) <= LIMITS["cached_logp_max_abs"] for row in divergences)
+        summary["greedy_argmax_checked"] = True
         training_prompts = [row for row in prompts for _ in range(8)]
         rollout = engine.call("generate", prompts=training_prompts,
                               **{**settings, "max_new_tokens": 64, "temperature": 1.})
