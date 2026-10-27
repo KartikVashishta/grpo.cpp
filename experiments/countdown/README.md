@@ -78,6 +78,19 @@ kernel measurement. Synchronization adds overhead. Estimated dollars are
 computed from elapsed time and public rates, not claimed as invoiced spend.
 Checkpoint reload and other unclassified overhead remain in total elapsed time.
 
+Generate the plots and a standalone answer viewer from saved measurements:
+
+```bash
+uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
+  runs/countdown/calibration-01 runs/countdown/reference-01 \
+  --output runs/countdown/report
+```
+
+You can pass just the calibration directory before a training run exists.
+The report saves SVG and PNG figures beside `report.html`. Learning curves
+show sampled development pass@1; their intervals describe uncertainty across
+puzzles, not variation across independent training runs.
+
 Calibration reports the actual fraction of groups containing both successes
 and failures. A good training-reward curve alone does not prove learning:
 development performance must improve, and final testing and an independent

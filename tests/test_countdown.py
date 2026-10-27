@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/countdown"))
 from task import make_splits, puzzle_id, verify
+from pilot import summarize
 
 
 class CountdownTest(unittest.TestCase):
@@ -44,6 +45,19 @@ class CountdownTest(unittest.TestCase):
         self.assertEqual(ids.count(puzzle_id([8, 3, 7], 45)), 1)
         with self.assertRaises(ValueError):
             make_splits(rows, {"train": 13}, 42)
+
+    def test_learning_signal_is_measured_per_prompt(self):
+        records = []
+        for key, rewards in [("unsolved", [0] * 8), ("solved", [1] * 8),
+                             ("mixed", [1] + [0] * 7)]:
+            records.extend({"id": key, "reward": reward, "tokens": 10,
+                            "eos": True, "status": "correct" if reward else "wrong_value"}
+                           for reward in rewards)
+        stats = summarize(records)
+        self.assertEqual(stats["mixed_groups"], 1)
+        self.assertEqual(stats["prompts"], 3)
+        self.assertEqual(stats["accuracy"], 9 / 24)
+        self.assertEqual(stats["generated_tokens"], 240)
 
 
 if __name__ == "__main__":

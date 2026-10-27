@@ -35,11 +35,12 @@ def execute(config, run_id, mode, provenance):
         run(config, Path("/data"), output, mode, provenance)
     finally:
         if output.exists():
+            volume.commit()
             elapsed = time.perf_counter() - started
             (output / "container.json").write_text(json.dumps({
                 "function_seconds": elapsed,
                 "estimated_compute_usd": elapsed * (0.000222 + 2 * 0.0000131 + 16 * 0.00000222),
-                "note": "Estimate excludes image build, startup before function entry, storage and network; not an invoice."
+                "note": "Includes artifact commit; excludes the final small timing-file commit, image build, startup before function entry, storage and network; not an invoice."
             }, indent=2) + "\n")
             volume.commit()
     return {p.name: p.read_text() for p in output.iterdir()

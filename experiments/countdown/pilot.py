@@ -117,6 +117,8 @@ def run(config, data_dir, output, mode, provenance, max_seconds=3000):
         splits[name] = [json.loads(line) for line in content.splitlines()]
     metadata = {
         "config": config, "mode": mode, "source": provenance, "data": manifest,
+        "runtime_files_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                 for p in Path(__file__).parent.iterdir() if p.is_file()},
         "versions": {p: importlib.metadata.version(p) for p in
                      ("torch", "transformers", "trl", "accelerate", "datasets")},
         "installed_packages": sorted(f"{p.metadata['Name']}=={p.version}"
@@ -140,6 +142,8 @@ def run(config, data_dir, output, mode, provenance, max_seconds=3000):
             config["model"], revision=config["model_revision"], dtype=torch.float32,
             attn_implementation="sdpa").to("cuda")
     torch.cuda.reset_peak_memory_stats()
+    steps_completed = 0
+    training_peak = None
 
     def evaluate(step, split, count=1):
         with timings.measure("evaluation"):
@@ -234,11 +238,14 @@ def run(config, data_dir, output, mode, provenance, max_seconds=3000):
                                   reward_funcs=reward, train_dataset=dataset, callbacks=[Measurements()])
         trainer.train()
         step = trainer.state.global_step
+        steps_completed = step
         if step % config["eval_steps"]:
             evaluate(step, "dev")
         with timings.measure("checkpoint"):
             trainer.save_model(str(output / "final"))
             tokenizer.save_pretrained(output / "final")
+        training_peak = {"allocated_bytes": torch.cuda.max_memory_allocated(),
+                         "reserved_bytes": torch.cuda.max_memory_reserved()}
         # Verify an ordinary HF reload, including the actual generated answers.
         before = sample(model, tokenizer, splits["dev"][:32], config, step, "reload")
         reloaded = AutoModelForCausalLM.from_pretrained(output / "final", dtype=torch.float32,
@@ -253,7 +260,12 @@ def run(config, data_dir, output, mode, provenance, max_seconds=3000):
         raise ValueError("mode must be calibrate or train")
 
     elapsed = time.perf_counter() - started
-    summary = {"status": "complete", "mode": mode, "elapsed_seconds": elapsed,
+    finished = mode == "calibrate" or steps_completed == config["max_steps"]
+    summary = {"status": "complete" if finished else "stopped", "mode": mode,
+               "steps_requested": config["max_steps"] if mode == "train" else 0,
+               "steps_completed": steps_completed,
+               "stop_reason": "finished" if finished else "time_limit",
+               "training_peak": training_peak, "elapsed_seconds": elapsed,
                "estimated_compute_usd": elapsed * (0.000222 + 2 * 0.0000131 + 16 * 0.00000222),
                "stage_seconds": dict(timings.seconds),
                "peak_allocated_bytes": torch.cuda.max_memory_allocated(),

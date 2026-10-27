@@ -57,6 +57,9 @@ job before starting it and keep credentials outside this repository.
 - First image build stopped before GPU allocation: Datasets 5.1 requires
   PyArrow 24 or newer. Updated the explicit PyArrow pin to 24.0.0; this was a
   dependency resolution failure, not a model or learning result.
+- The corrected image resolved successfully. Calibration app
+  `ap-U7z9D7nQuZLJb43OEzmns1` is queued for one L4; the provider reports one
+  queued input and no running container. No model samples are available yet.
 
 The main thread owns integration. Independent read-only reviews cover existing
 loss correctness, the candidate native backend and reference-trainer APIs.
