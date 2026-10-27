@@ -17,12 +17,13 @@ an advantage. Model and data revisions are in `experiments/countdown/config.json
 - `calibration-h100-02`: 0/1,024 correct; 1,017 parse failures and seven wrong
   number sets. No mixed-reward groups. 86 seconds, about $0.10 at listed rates.
   Raw answers and plots are under `runs/countdown/`. Training has not started.
+- `calibration-h100-03`: adding two format examples gave 36/1,024 correct and
+  29/128 mixed-reward groups. Mean length fell from 36.3 to 16.8 tokens.
+  69 seconds, about $0.08. Keep this prompt for the training pilot.
 - RL.cu is a possible backend, but its checkpoint saver is a stub and its
   default optimizer/KV allocation order needs fixing for 24 GB.
 
-Next: repeat calibration with two format examples in the prompt. They are
-absent from all four splits. Keep the strict verifier. If there is learning
-signal, check one training update and checkpoint reload.
+Next: check one training update and checkpoint reload.
 If those work, run the short training pilot. Native integration, final test
 evaluation and the 24 GB target remain open. This chat owns integration.
 

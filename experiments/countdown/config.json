@@ -6,7 +6,6 @@
   "split_seed": 20261028,
   "sizes": {"calibration": 128, "dev": 256, "test": 512, "train": 8192},
   "seed": 42,
-  "prompt_examples": 2,
   "group_size": 8,
   "max_new_tokens": 64,
   "temperature": 1.0,

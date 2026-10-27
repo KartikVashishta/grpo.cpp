@@ -48,6 +48,7 @@ those hashes using a fixed seed, then take 128 calibration, 256 development,
 512 final-test and 8,192 training puzzles. Source row order and permutations
 cannot cross splits. The pilot does not read final-test puzzle contents.
 
+The prompt includes two solved examples, neither present in the data splits.
 The runner uses full-support sampling at temperature 1, eight completions per
 prompt and a 64-token cap. Each optimizer update sees four prompts, with two
 completions per training microbatch. Rewards are centered within each group,
