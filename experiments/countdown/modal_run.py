@@ -13,7 +13,7 @@ ROOT = HERE.parents[1]
 app = modal.App("grpo-countdown")
 volume = modal.Volume.from_name("grpo-countdown", create_if_missing=True)
 image = (modal.Image.debian_slim(python_version="3.11")
-         .pip_install_from_requirements(str(HERE / "requirements.txt"))
+         .pip_install_from_requirements(str(HERE / "requirements.lock"))
          .env({"HF_HOME": "/artifacts/hf", "TOKENIZERS_PARALLELISM": "false"})
          .add_local_dir(HERE, "/experiment", ignore=["__pycache__"])
          .add_local_dir(ROOT / "runs/countdown/data", "/data", ignore=["source.parquet"]))

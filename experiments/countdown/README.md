@@ -23,7 +23,7 @@ From the repository root:
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_countdown.py' -v
-uv run --with pyarrow==23.0.1 python experiments/countdown/prepare.py
+uv run --with pyarrow==24.0.0 python experiments/countdown/prepare.py
 modal run experiments/countdown/modal_run.py --run-id calibration-01
 modal run experiments/countdown/modal_run.py --run-id reference-01 --mode train --steps 64
 ```
@@ -37,7 +37,8 @@ $5 and inspect each result before starting another job. This is a per-job
 bound; the script does not enforce an account-wide spending limit.
 
 `config.json` pins the model, data and recipe. `data_manifest.json` pins the
-actual split bytes. The source has 490,364 rows and 200,402 distinct
+actual split bytes. `requirements.lock` pins the resolved Linux/Python 3.11
+environment, including transitive dependencies. The source has 490,364 rows and 200,402 distinct
 three-number puzzles. We hash each sorted input multiset plus target, sort
 those hashes using a fixed seed, then take 128 calibration, 256 development,
 512 final-test and 8,192 training puzzles. Source row order and permutations
