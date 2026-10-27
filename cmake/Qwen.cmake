@@ -34,8 +34,13 @@ target_compile_features(qwen_cuda PUBLIC cxx_std_17)
 target_compile_options(qwen_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
 set_target_properties(qwen_cuda PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
 
+add_library(qwen_training src/cuda/qwen_training.cu)
+target_include_directories(qwen_training PUBLIC include)
+target_link_libraries(qwen_training PUBLIC qwen_cuda)
+set_target_properties(qwen_training PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
+
 add_executable(qwen_probe tests/qwen_probe.cu)
-target_link_libraries(qwen_probe PRIVATE qwen_cuda)
+target_link_libraries(qwen_probe PRIVATE qwen_training)
 set_target_properties(qwen_probe PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
 
 add_executable(test_qwen_embedding tests/test_qwen_embedding.cu)
@@ -44,3 +49,7 @@ set_target_properties(test_qwen_embedding PROPERTIES CUDA_STANDARD 17 CUDA_STAND
 if(BUILD_TESTING)
     add_test(NAME qwen_embedding COMMAND test_qwen_embedding)
 endif()
+
+add_executable(test_qwen_optimizer tests/test_qwen_optimizer.cu)
+target_link_libraries(test_qwen_optimizer PRIVATE qwen_training)
+set_target_properties(test_qwen_optimizer PROPERTIES CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)

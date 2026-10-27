@@ -22,7 +22,7 @@ for directory in ("cmake", "include", "src", "tests", "bench", "examples"):
                                 ignore=["__pycache__", ".DS_Store"], copy=True)
 image = (image.run_commands(
     "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON -DCMAKE_CUDA_ARCHITECTURES=90",
-    "cmake --build /build --target qwen_probe test_qwen_embedding bench_grpo_loss_cuda -j2")
+    "cmake --build /build --target qwen_probe test_qwen_embedding test_qwen_optimizer bench_grpo_loss_cuda -j2")
     .add_local_dir(HERE, "/experiment", ignore=["__pycache__", ".DS_Store"]))
 
 
@@ -36,6 +36,7 @@ def build_check():
     assert shutil.which("compute-sanitizer")
     assert Path("/build/qwen_probe").is_file()
     assert Path("/build/test_qwen_embedding").is_file()
+    assert Path("/build/test_qwen_optimizer").is_file()
     config = json.loads(Path("/experiment/config.json").read_text())
     inputs = fixture(AutoTokenizer.from_pretrained(config["model"], revision=config["model_revision"]))
     return {"nvcc": subprocess.check_output(["/usr/local/cuda/bin/nvcc", "--version"], text=True),
@@ -45,16 +46,21 @@ def build_check():
 @app.function(image=image, gpu="H100", cpu=(2, 2), memory=(16384, 16384),
               timeout=1200, retries=0, max_containers=1, scaledown_window=2,
               volumes={"/artifacts": volume})
-def execute(run_id, provenance):
+def execute(run_id, provenance, mode):
     import sys
     sys.path.insert(0, "/experiment")
-    from parity import run
+    if mode == "parity":
+        from parity import run
+    else:
+        from update_check import run
     output = Path("/artifacts") / run_id
     output.mkdir()
     started = time.perf_counter()
     try:
         run(output, provenance)
     except Exception as error:
+        import traceback
+        (output / "error.txt").write_text(traceback.format_exc())
         path = output / "summary.json"
         summary = json.loads(path.read_text()) if path.exists() else {}
         summary.update(passed=False, error=f"{type(error).__name__}: {error}")
@@ -72,7 +78,9 @@ def execute(run_id, provenance):
 
 
 @app.local_entrypoint()
-def main(run_id: str = "", build_only: bool = False):
+def main(run_id: str = "", build_only: bool = False, mode: str = "parity"):
+    if mode not in ("parity", "update"):
+        raise ValueError("Use parity or update")
     if build_only:
         print(build_check.remote())
         return
@@ -90,7 +98,7 @@ def main(run_id: str = "", build_only: bool = False):
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "files_sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)},
     }
-    result = execute.remote(run_id, provenance)
+    result = execute.remote(run_id, provenance, mode)
     output.mkdir(parents=True)
     for name, content in result.items():
         (output / name).write_text(content)

@@ -1,3 +1,269 @@
+diff --git a/include/kernels/adamw.cuh b/include/kernels/adamw.cuh
+index eb5ae2f..acbea8d 100644
+--- a/include/kernels/adamw.cuh
++++ b/include/kernels/adamw.cuh
+@@ -35,7 +35,8 @@ void launch_adamw_fp16(
+     float        weight_decay,
+     float        bias_correction1,  // 1 - beta1^t
+     float        bias_correction2,  // 1 - beta2^t
+-    cudaStream_t stream = 0
++    cudaStream_t stream = 0,
++    float        gradient_scale = 1.0f
+ );
+ 
+ // Update FP32 weight parameter in-place.
+@@ -53,5 +54,6 @@ void launch_adamw_fp32(
+     float        weight_decay,
+     float        bias_correction1,
+     float        bias_correction2,
+-    cudaStream_t stream = 0
++    cudaStream_t stream = 0,
++    float        gradient_scale = 1.0f
+ );
+diff --git a/include/kernels/embedding.cuh b/include/kernels/embedding.cuh
+index 948a0eb..97a9ff4 100644
+--- a/include/kernels/embedding.cuh
++++ b/include/kernels/embedding.cuh
+@@ -15,7 +15,7 @@ void launch_embedding(
+ // Backward pass for embedding: scatter-add gradients into embedding weight table.
+ //   dW[token_ids[tok], d] += dOut[tok, d]
+ // dW must be zeroed by the caller before the first backward call.
+-// Uses atomicAdd(half*) for correctness when multiple tokens share the same vocab_id.
++// Repeated token rows are summed in FP32, then added to dW and rounded once.
+ void launch_embedding_backward(
+     half*        dW,         // [vocab_size, hidden_size] gradient for embedding weight (accumulated)
+     const half*  dOut,       // [num_tokens, hidden_size] upstream gradient
+diff --git a/include/model/qwen3.h b/include/model/qwen3.h
+index 7e3c3a0..51a6c34 100644
+--- a/include/model/qwen3.h
++++ b/include/model/qwen3.h
+@@ -88,7 +88,8 @@ struct Qwen3Model {
+     int total_kv_blocks = 0;
+ };
+ 
+-Qwen3Model* qwen3_load(const std::string& model_dir, int max_batch, int max_seq);
++Qwen3Model* qwen3_load(const std::string& model_dir, int max_batch, int max_seq,
++                        std::vector<float>* initial_master = nullptr);
+ 
+ void qwen3_init(Qwen3Model* m, int max_batch, int max_seq, int max_batched_tokens, int num_kv_blocks);
+ 
+diff --git a/include/model/weights.h b/include/model/weights.h
+index 3c1db03..1c453ee 100644
+--- a/include/model/weights.h
++++ b/include/model/weights.h
+@@ -61,7 +61,8 @@ struct Qwen3Weights {
+ };
+ 
+ // Load weights from safetensors file(s) in model_dir onto GPU
+-Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg);
++Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg,
++                          std::vector<float>* initial_master = nullptr);
+ 
+ // Free all GPU weight memory
+ void free_weights(Qwen3Weights& w);
+\ No newline at end of file
+diff --git a/include/training/optimizer.h b/include/training/optimizer.h
+index 9f27742..17f1486 100644
+--- a/include/training/optimizer.h
++++ b/include/training/optimizer.h
+@@ -72,10 +72,11 @@ public:
+                    float beta1        = 0.9f,
+                    float beta2        = 0.999f,
+                    float eps          = 1e-8f,
+-                   float weight_decay = 0.01f)
++                   float weight_decay = 0.01f,
++                   const float* initial_master = nullptr)
+         : lr(lr), beta1(beta1), beta2(beta2), eps(eps), weight_decay(weight_decay)
+     {
+-        init(model);
++        init(model, initial_master);
+     }
+ 
+     ~AdamWOptimizer() { free(); }
+@@ -116,7 +117,7 @@ public:
+     float* get_final_norm_v() const { return fp32_v_ + fp32_final_norm_offset(); }
+ 
+     // --- Optimizer step: 3 kernel launches ---
+-    void step(Qwen3Gradients* grads, cudaStream_t stream = 0) {
++    void step(Qwen3Gradients* grads, cudaStream_t stream = 0, float gradient_scale = 1.0f) {
+         step_++;
+         float bc1 = 1.0f - powf(beta1, (float)step_);
+         float bc2 = 1.0f - powf(beta2, (float)step_);
+@@ -126,7 +127,7 @@ public:
+         launch_adamw_fp16(
+             fp16_master_, model_->weights.fp16_pool, grads->half_pool,
+             fp16_m_, fp16_v_, (int)proj_n,
+-            lr, beta1, beta2, eps, weight_decay, bc1, bc2, stream);
++            lr, beta1, beta2, eps, weight_decay, bc1, bc2, stream, gradient_scale);
+ 
+         // Launch 1b: embedding weights (no weight decay — shrinking pretrained
+         //            embeddings toward zero destabilises token representations)
+@@ -137,13 +138,13 @@ public:
+             model_->weights.fp16_pool + embed_off,
+             grads->half_pool + embed_off,
+             fp16_m_ + embed_off, fp16_v_ + embed_off, (int)embed_n,
+-            lr, beta1, beta2, eps, /*weight_decay=*/0.0f, bc1, bc2, stream);
++            lr, beta1, beta2, eps, /*weight_decay=*/0.0f, bc1, bc2, stream, gradient_scale);
+ 
+         // Launch 2: all FP32 params (norms), no weight decay
+         launch_adamw_fp32(
+             model_->weights.fp32_pool, (const float*)grads->float_pool,
+             fp32_m_, fp32_v_, (int)n32_,
+-            lr, beta1, beta2, eps, /*weight_decay=*/0.0f, bc1, bc2, stream);
++            lr, beta1, beta2, eps, /*weight_decay=*/0.0f, bc1, bc2, stream, gradient_scale);
+     }
+ 
+ private:
+@@ -185,7 +186,7 @@ private:
+         return per_layer_fp32_ * model_->config.num_hidden_layers;
+     }
+ 
+-    void init(Qwen3Model* model) {
++    void init(Qwen3Model* model, const float* initial_master) {
+         model_ = model;
+         const Qwen3Config& c = model->config;
+         const int L = c.num_hidden_layers;
+@@ -239,7 +240,10 @@ private:
+         fp32_v_ = fp32_m_ + n32_;
+ 
+         // Initialize master weights: one flat copy from the weight pool
+-        fp16_to_fp32(fp16_master_, model->weights.fp16_pool, (int)n16_, 0);
++        if (initial_master)
++            CUDA_CHECK(cudaMemcpy(fp16_master_, initial_master, n16_ * sizeof(float), cudaMemcpyHostToDevice));
++        else
++            fp16_to_fp32(fp16_master_, model->weights.fp16_pool, (int)n16_, 0);
+         CUDA_CHECK(cudaDeviceSynchronize());
+ 
+         printf("[AdamW] Flat buffers: fp16=%zu params (%.1f MB state)  fp32=%zu params (%.2f MB state)  "
+diff --git a/src/kernels/adamw.cu b/src/kernels/adamw.cu
+index b30fa9f..9472071 100644
+--- a/src/kernels/adamw.cu
++++ b/src/kernels/adamw.cu
+@@ -17,12 +17,13 @@ __global__ static void adamw_fp16_kernel(
+     float        eps,
+     float        weight_decay,
+     float        bc1_inv,     // 1 / (1 - beta1^t)
+-    float        bc2_inv      // 1 / (1 - beta2^t)
++    float        bc2_inv,     // 1 / (1 - beta2^t)
++    float        gradient_scale
+ ) {
+     int i = blockIdx.x * blockDim.x + threadIdx.x;
+     if (i >= n) return;
+ 
+-    float g = __half2float(grad[i]);
++    float g = __half2float(grad[i]) * gradient_scale;
+     float mi = beta1 * m[i] + (1.0f - beta1) * g;
+     float vi = beta2 * v[i] + (1.0f - beta2) * g * g;
+ 
+@@ -44,7 +45,7 @@ void launch_adamw_fp16(
+     float* m, float* v, int n,
+     float lr, float beta1, float beta2, float eps, float weight_decay,
+     float bias_correction1, float bias_correction2,
+-    cudaStream_t stream
++    cudaStream_t stream, float gradient_scale
+ ) {
+     if (n <= 0) return;
+     int block = 256;
+@@ -53,7 +54,7 @@ void launch_adamw_fp16(
+     float bc2_inv = 1.0f / bias_correction2;
+     adamw_fp16_kernel<<<grid, block, 0, stream>>>(
+         master_w, model_w, grad, m, v, n,
+-        lr, beta1, beta2, eps, weight_decay, bc1_inv, bc2_inv
++        lr, beta1, beta2, eps, weight_decay, bc1_inv, bc2_inv, gradient_scale
+     );
+ }
+ 
+@@ -72,12 +73,13 @@ __global__ static void adamw_fp32_kernel(
+     float        eps,
+     float        weight_decay,
+     float        bc1_inv,
+-    float        bc2_inv
++    float        bc2_inv,
++    float        gradient_scale
+ ) {
+     int i = blockIdx.x * blockDim.x + threadIdx.x;
+     if (i >= n) return;
+ 
+-    float g = grad[i];
++    float g = grad[i] * gradient_scale;
+     float mi = beta1 * m[i] + (1.0f - beta1) * g;
+     float vi = beta2 * v[i] + (1.0f - beta2) * g * g;
+ 
+@@ -94,7 +96,7 @@ void launch_adamw_fp32(
+     float* w, const float* grad, float* m, float* v, int n,
+     float lr, float beta1, float beta2, float eps, float weight_decay,
+     float bias_correction1, float bias_correction2,
+-    cudaStream_t stream
++    cudaStream_t stream, float gradient_scale
+ ) {
+     if (n <= 0) return;
+     int block = 256;
+@@ -103,6 +105,6 @@ void launch_adamw_fp32(
+     float bc2_inv = 1.0f / bias_correction2;
+     adamw_fp32_kernel<<<grid, block, 0, stream>>>(
+         w, grad, m, v, n,
+-        lr, beta1, beta2, eps, weight_decay, bc1_inv, bc2_inv
++        lr, beta1, beta2, eps, weight_decay, bc1_inv, bc2_inv, gradient_scale
+     );
+ }
+diff --git a/src/kernels/config.cpp b/src/kernels/config.cpp
+index 4bc02ea..83bc686 100644
+--- a/src/kernels/config.cpp
++++ b/src/kernels/config.cpp
+@@ -34,6 +34,14 @@ Qwen3Config load_config(const std::string& model_dir) {
+     if (j.contains("torch_dtype"))
+         cfg.torch_dtype = j["torch_dtype"].get<std::string>();
+ 
++    if (j.value("model_type", "") != "qwen3" || cfg.vocab_size != 151936 ||
++        cfg.hidden_size != 1024 || cfg.intermediate_size != 3072 ||
++        cfg.num_hidden_layers != 28 || cfg.num_attention_heads != 16 ||
++        cfg.num_key_value_heads != 8 || cfg.head_dim != 128 ||
++        !cfg.tie_word_embeddings || cfg.attention_bias || cfg.hidden_act != "silu" ||
++        cfg.max_position_embeddings != 40960 || cfg.rope_theta != 1000000.0f ||
++        cfg.rms_norm_eps != 1e-6f || j.value("use_sliding_window", false))
++        throw std::runtime_error("Only the tied Qwen3-0.6B architecture is supported");
+     cfg.compute_derived();
+ 
+     printf("[CONFIG] %s\n", config_path.c_str());
+diff --git a/src/kernels/embedding.cu b/src/kernels/embedding.cu
+index 9fadc9c..57f6e61 100644
+--- a/src/kernels/embedding.cu
++++ b/src/kernels/embedding.cu
+@@ -44,7 +44,7 @@ void launch_embedding(
+ 
+ // ============================================================
+ // Backward: dW[token_ids[tok], d] += dOut[tok, d]
+-// Uses atomicAdd(half*) for correctness with duplicate token_ids.
++// One owner per token ID sums repeated rows before rounding to FP16.
+ // Grid: (num_tokens,); Block: (256,)
+ // ============================================================
+ 
+@@ -60,11 +60,19 @@ __global__ void embedding_backward_kernel(
+ 
+     const int vocab_id = token_ids[tok];
+ 
+-    const half* src = dOut + (long)tok      * hidden_size;
+-    half*       dst = dW   + (long)vocab_id * hidden_size;
++    for (int row = 0; row < tok; ++row)
++        if (token_ids[row] == vocab_id) return;
+ 
+-    for (int d = threadIdx.x; d < hidden_size; d += blockDim.x)
+-        atomicAdd(&dst[d], src[d]);
++    half* dst = dW + (long)vocab_id * hidden_size;
++    // shortcut: scans cost O(unique IDs * tokens * hidden); use a segmented
++    // reduction if training grows beyond the current short microbatches.
++    for (int d = threadIdx.x; d < hidden_size; d += blockDim.x) {
++        float sum = 0.0f;
++        for (int row = tok; row < num_tokens; ++row)
++            if (token_ids[row] == vocab_id)
++                sum += __half2float(dOut[(long)row * hidden_size + d]);
++        dst[d] = __float2half(__half2float(dst[d]) + sum);
++    }
+ }
+ 
+ void launch_embedding_backward(
+diff --git a/src/kernels/weights.cpp b/src/kernels/weights.cpp
+index 8850844..1c24a9e 100644
 --- a/src/kernels/weights.cpp
 +++ b/src/kernels/weights.cpp
 @@ -7,6 +7,8 @@
@@ -9,7 +275,7 @@
  #include <sys/mman.h>
  #include <sys/stat.h>
  #include <fcntl.h>
-@@ -68,7 +70,8 @@
+@@ -68,7 +70,8 @@ static SafetensorsFile open_safetensors(const std::string& path) {
      }
  
      struct stat st;
@@ -19,7 +285,7 @@
      sf.file_size = st.st_size;
  
      sf.mapped = mmap(nullptr, sf.file_size, PROT_READ, MAP_PRIVATE, sf.fd, 0);
-@@ -80,6 +83,9 @@
+@@ -80,6 +83,9 @@ static SafetensorsFile open_safetensors(const std::string& path) {
      // Read 8-byte header size (little-endian uint64)
      memcpy(&sf.header_size, sf.mapped, sizeof(uint64_t));
  
@@ -29,7 +295,7 @@
      // Parse JSON header
      const char* json_start = (const char*)sf.mapped + 8;
      sf.header = json::parse(json_start, json_start + sf.header_size);
-@@ -100,6 +106,8 @@
+@@ -100,6 +106,8 @@ static const void* get_tensor_data(const SafetensorsFile& sf, const std::string&
      size_t start = offsets[0].get<size_t>();
      size_t end   = offsets[1].get<size_t>();
  
@@ -38,7 +304,7 @@
      if (out_bytes) *out_bytes = end - start;
      return sf.data_start + start;
  }
-@@ -108,11 +116,7 @@
+@@ -108,11 +116,7 @@ static const void* get_tensor_data(const SafetensorsFile& sf, const std::string&
  static size_t dtype_size(const std::string& dtype) {
      if (dtype == "BF16" || dtype == "F16") return 2;
      if (dtype == "F32") return 4;
@@ -51,7 +317,25 @@
  }
  
  // ============================================================================
-@@ -218,59 +222,62 @@
+@@ -154,7 +158,8 @@ static void fp16_to_fp32_cpu(float* dst, const void* src_fp16, size_t n) {
+ //   FP32: per-layer [input_norm, q_norm, k_norm, post_attn_norm], then final_norm
+ // ============================================================================
+ 
+-Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg) {
++Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg,
++                          std::vector<float>* initial_master) {
+     Qwen3Weights w;
+     const int L = cfg.num_hidden_layers;
+     const int H = cfg.hidden_size;
+@@ -183,6 +188,7 @@ Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg)
+     // --- Allocate host staging buffers ---
+     std::vector<half>  h_fp16(total_fp16);
+     std::vector<float> h_fp32(total_fp32);
++    if (initial_master) initial_master->resize(total_fp16);
+ 
+     // --- Open safetensors files ---
+     std::vector<SafetensorsFile> files;
+@@ -218,59 +224,68 @@ Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg)
  
      printf("[WEIGHTS] Loading from %zu safetensors file(s)...\n", files.size());
  
@@ -106,11 +390,16 @@
 -        } else {
 -            fprintf(stderr, "WARNING: unexpected dtype '%s' for FP16 tensor '%s'\n",
 -                    dtype.c_str(), name.c_str());
--        }
 +        } else if (dtype == "F32") {
 +            const float* src = static_cast<const float*>(data);
 +            for (size_t i = 0; i < n; ++i) dst[i] = __float2half(src[i]);
 +        }
++        if (initial_master) {
++            float* master = initial_master->data() + (dst - h_fp16.data());
++            if (dtype == "BF16") bf16_to_fp32(master, data, n);
++            else if (dtype == "F16") fp16_to_fp32_cpu(master, data, n);
++            else memcpy(master, data, n * sizeof(float));
+         }
 +        for (size_t i = 0; i < n; ++i)
 +            if (!std::isfinite(__half2float(dst[i])))
 +                throw std::runtime_error("Nonfinite FP16 weight: " + name);
@@ -136,7 +425,7 @@
      };
  
      // --- Stage FP16 tensors into host buffer ---
-@@ -278,27 +285,27 @@
+@@ -278,27 +293,27 @@ Qwen3Weights load_weights(const std::string& model_dir, const Qwen3Config& cfg)
      half* hp = h_fp16.data();
      for (int i = 0; i < L; i++) {
          std::string prefix = "model.layers." + std::to_string(i);
@@ -147,8 +436,6 @@
 -        stage_fp16(prefix + ".mlp.gate_proj.weight",       gate_proj_sz, hp); hp += gate_proj_sz;
 -        stage_fp16(prefix + ".mlp.up_proj.weight",         up_proj_sz,   hp); hp += up_proj_sz;
 -        stage_fp16(prefix + ".mlp.down_proj.weight",       down_proj_sz, hp); hp += down_proj_sz;
--    }
--    stage_fp16("model.embed_tokens.weight", embed_sz, hp);
 +        stage_fp16(prefix + ".self_attn.q_proj.weight",    {cfg.q_dim, H},    hp); hp += q_proj_sz;
 +        stage_fp16(prefix + ".self_attn.k_proj.weight",    {cfg.kv_dim, H},    hp); hp += k_proj_sz;
 +        stage_fp16(prefix + ".self_attn.v_proj.weight",    {cfg.kv_dim, H},    hp); hp += v_proj_sz;
@@ -156,7 +443,8 @@
 +        stage_fp16(prefix + ".mlp.gate_proj.weight",       {cfg.intermediate_size, H}, hp); hp += gate_proj_sz;
 +        stage_fp16(prefix + ".mlp.up_proj.weight",         {cfg.intermediate_size, H},   hp); hp += up_proj_sz;
 +        stage_fp16(prefix + ".mlp.down_proj.weight",       {H, cfg.intermediate_size}, hp); hp += down_proj_sz;
-+    }
+     }
+-    stage_fp16("model.embed_tokens.weight", embed_sz, hp);
 +    stage_fp16("model.embed_tokens.weight", {cfg.vocab_size, H}, hp);
  
      // --- Stage FP32 tensors into host buffer ---
@@ -168,77 +456,35 @@
 -        stage_fp32(prefix + ".self_attn.q_norm.weight",         cfg.head_dim, fp); fp += cfg.head_dim;
 -        stage_fp32(prefix + ".self_attn.k_norm.weight",         cfg.head_dim, fp); fp += cfg.head_dim;
 -        stage_fp32(prefix + ".post_attention_layernorm.weight",  H,           fp); fp += H;
--    }
--    stage_fp32("model.norm.weight", final_norm_sz, fp);
 +        stage_fp32(prefix + ".input_layernorm.weight",          {H},           fp); fp += H;
 +        stage_fp32(prefix + ".self_attn.q_norm.weight",         {cfg.head_dim}, fp); fp += cfg.head_dim;
 +        stage_fp32(prefix + ".self_attn.k_norm.weight",         {cfg.head_dim}, fp); fp += cfg.head_dim;
 +        stage_fp32(prefix + ".post_attention_layernorm.weight",  {H},           fp); fp += H;
-+    }
+     }
+-    stage_fp32("model.norm.weight", final_norm_sz, fp);
 +    stage_fp32("model.norm.weight", {H}, fp);
  
      // --- One cudaMalloc + cudaMemcpy per pool ---
      size_t fp16_bytes = total_fp16 * sizeof(half);
---- a/src/kernels/config.cpp
-+++ b/src/kernels/config.cpp
-@@ -34,6 +34,14 @@
-     if (j.contains("torch_dtype"))
-         cfg.torch_dtype = j["torch_dtype"].get<std::string>();
- 
-+    if (j.value("model_type", "") != "qwen3" || cfg.vocab_size != 151936 ||
-+        cfg.hidden_size != 1024 || cfg.intermediate_size != 3072 ||
-+        cfg.num_hidden_layers != 28 || cfg.num_attention_heads != 16 ||
-+        cfg.num_key_value_heads != 8 || cfg.head_dim != 128 ||
-+        !cfg.tie_word_embeddings || cfg.attention_bias || cfg.hidden_act != "silu" ||
-+        cfg.max_position_embeddings != 40960 || cfg.rope_theta != 1000000.0f ||
-+        cfg.rms_norm_eps != 1e-6f || j.value("use_sliding_window", false))
-+        throw std::runtime_error("Only the tied Qwen3-0.6B architecture is supported");
-     cfg.compute_derived();
- 
-     printf("[CONFIG] %s\n", config_path.c_str());
---- a/src/kernels/embedding.cu
-+++ b/src/kernels/embedding.cu
-@@ -44,7 +44,7 @@
- 
- // ============================================================
- // Backward: dW[token_ids[tok], d] += dOut[tok, d]
--// Uses atomicAdd(half*) for correctness with duplicate token_ids.
-+// One owner per token ID sums repeated rows before rounding to FP16.
- // Grid: (num_tokens,); Block: (256,)
- // ============================================================
- 
-@@ -60,11 +60,19 @@
- 
-     const int vocab_id = token_ids[tok];
- 
--    const half* src = dOut + (long)tok      * hidden_size;
--    half*       dst = dW   + (long)vocab_id * hidden_size;
-+    for (int row = 0; row < tok; ++row)
-+        if (token_ids[row] == vocab_id) return;
- 
--    for (int d = threadIdx.x; d < hidden_size; d += blockDim.x)
--        atomicAdd(&dst[d], src[d]);
-+    half* dst = dW + (long)vocab_id * hidden_size;
-+    // shortcut: scans cost O(unique IDs * tokens * hidden); use a segmented
-+    // reduction if training grows beyond the current short microbatches.
-+    for (int d = threadIdx.x; d < hidden_size; d += blockDim.x) {
-+        float sum = 0.0f;
-+        for (int row = tok; row < num_tokens; ++row)
-+            if (token_ids[row] == vocab_id)
-+                sum += __half2float(dOut[(long)row * hidden_size + d]);
-+        dst[d] = __float2half(__half2float(dst[d]) + sum);
-+    }
+diff --git a/src/model/qwen3.cu b/src/model/qwen3.cu
+index d337533..6612c64 100644
+--- a/src/model/qwen3.cu
++++ b/src/model/qwen3.cu
+@@ -362,14 +362,15 @@ void compute_logits(Qwen3Model* m, int B, int S, cudaStream_t stream) {
  }
  
- void launch_embedding_backward(
---- a/include/kernels/embedding.cuh
-+++ b/include/kernels/embedding.cuh
-@@ -15,7 +15,7 @@
- // Backward pass for embedding: scatter-add gradients into embedding weight table.
- //   dW[token_ids[tok], d] += dOut[tok, d]
- // dW must be zeroed by the caller before the first backward call.
--// Uses atomicAdd(half*) for correctness when multiple tokens share the same vocab_id.
-+// Repeated token rows are summed in FP32, then added to dW and rounded once.
- void launch_embedding_backward(
-     half*        dW,         // [vocab_size, hidden_size] gradient for embedding weight (accumulated)
-     const half*  dOut,       // [num_tokens, hidden_size] upstream gradient
+ // Load model from dist
+-Qwen3Model* qwen3_load(const std::string& model_dir, int max_batch, int max_seq) {
++Qwen3Model* qwen3_load(const std::string& model_dir, int max_batch, int max_seq,
++                        std::vector<float>* initial_master) {
+     Qwen3Model* m = new Qwen3Model{};
+     m->max_batch = max_batch;
+     m->max_seq   = max_seq;
+ 
+     m->config = load_config(model_dir);
+     m->config.compute_derived();
+-    m->weights = load_weights(model_dir, m->config);
++    m->weights = load_weights(model_dir, m->config, initial_master);
+ 
+     const Qwen3Config& c   = m->config;
+     const int          max_T = max_batch * max_seq;

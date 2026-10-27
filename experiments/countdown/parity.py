@@ -198,13 +198,11 @@ def check_loader(model_dir, fixture_path, tmp):
     return folder, results
 
 
-def run(output, provenance):
-    import numpy as np
+def prepare(output, provenance, limits=LIMITS):
     import torch
     from huggingface_hub import snapshot_download
     from transformers import AutoConfig, AutoTokenizer
 
-    started = time.perf_counter()
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     torch.set_num_threads(2)
@@ -221,7 +219,7 @@ def run(output, provenance):
         runtime_hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     assert runtime_hashes == provenance["files_sha256"]
     (output / "metadata.json").write_text(json.dumps({
-        "source": provenance, "runtime_files_sha256": runtime_hashes, "limits": LIMITS,
+        "source": provenance, "runtime_files_sha256": runtime_hashes, "limits": limits,
         "model": config["model"], "revision": config["model_revision"],
         "gpu": torch.cuda.get_device_name(), "torch": torch.__version__,
         "torch_cuda": torch.version.cuda, "parameters": specs,
@@ -230,6 +228,13 @@ def run(output, provenance):
         "driver": subprocess.check_output(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"], text=True).strip(),
         "reference": "FP32 eager, TF32 off; projections and embedding rounded to FP16, norms kept FP32"
     }, indent=2) + "\n")
+    return model_dir, inputs, specs, counts
+
+
+def run(output, provenance):
+    import numpy as np
+    started = time.perf_counter()
+    model_dir, inputs, specs, counts = prepare(output, provenance)
     subprocess.run(["/build/bench_grpo_loss_cuda", "--check-only"], check=True,
                    stdout=(output / "loss-check.txt").open("w"), stderr=subprocess.STDOUT, timeout=60)
     subprocess.run(["/build/test_qwen_embedding"], check=True,

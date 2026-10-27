@@ -161,7 +161,18 @@ uv run --with matplotlib==3.10.8 python experiments/countdown/plot_parity.py \
   --output runs/countdown/report/gradients
 ```
 
-Native training, checkpoint export and the 24 GB comparison are still pending.
+The optimizer/checkpoint check is a separate run:
+
+```bash
+modal run experiments/countdown/native_run.py --mode update --run-id native-update-01
+```
+
+It compares clipped Adam updates with PyTorch using identical gradients, then
+checks a native roundtrip and a Transformers reload. The saved checkpoint has
+FP32 master weights and tokenizer files. It restarts with fresh optimizer state;
+it does not resume the same training trajectory.
+
+Native training and the 24 GB comparison are still pending.
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),
 [Countdown data](https://huggingface.co/datasets/Jiayi-Pan/Countdown-Tasks-3to4/tree/408f70d177020686d34a56bba5952feb45aaaee4),

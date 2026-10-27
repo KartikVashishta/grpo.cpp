@@ -30,9 +30,10 @@ repeated rows in FP32 cut that difference from 0.005% to 0.0000022%, with the
 same fixture and tolerances. Both runs and the plot are in the results bundle.
 The reduction suits short microbatches; large batches will need a faster one.
 
-Next: compare clipped Adam updates with PyTorch, export FP32 master weights and
-verify checkpoint reload. Keep scaled gradients until the Adam kernel converts
-them to FP32; exclude attention scratch memory from the gradient norm.
+Clipped Adam and model-only checkpoint export are implemented, with runtime
+checks still pending. Next: compare three updates with PyTorch and verify native
+and Transformers reloads. Gradients stay scaled until Adam reads them as FP32;
+the norm excludes attention scratch. Loading preserves original master weights.
 
 Native learning, the 24 GB run, final testing and the repeat seed remain open.
 This chat owns integration. Budget: $5 pilot, $15 native comparison, $5 repeat,
