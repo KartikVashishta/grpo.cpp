@@ -198,7 +198,8 @@ def check_loader(model_dir, fixture_path, tmp):
     return folder, results
 
 
-def prepare(output, provenance, limits=LIMITS):
+def prepare(output, provenance, limits=LIMITS,
+            reference_description="FP32 eager, TF32 off; projections and embedding rounded to FP16, norms kept FP32"):
     import torch
     from huggingface_hub import snapshot_download
     from transformers import AutoConfig, AutoTokenizer
@@ -226,7 +227,7 @@ def prepare(output, provenance, limits=LIMITS):
         "binary_sha256": hashlib.sha256(Path("/build/qwen_probe").read_bytes()).hexdigest(),
         "nvcc": subprocess.check_output(["/usr/local/cuda/bin/nvcc", "--version"], text=True),
         "driver": subprocess.check_output(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"], text=True).strip(),
-        "reference": "FP32 eager, TF32 off; projections and embedding rounded to FP16, norms kept FP32"
+        "reference": reference_description
     }, indent=2) + "\n")
     return model_dir, inputs, specs, counts
 

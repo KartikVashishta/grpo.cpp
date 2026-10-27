@@ -109,7 +109,8 @@ def run(output, provenance):
     from safetensors import safe_open
     from transformers import AutoModelForCausalLM, AutoTokenizer
     started = time.perf_counter()
-    source, inputs, specs, counts = prepare(output, provenance, LIMITS)
+    source, inputs, specs, counts = prepare(output, provenance, LIMITS,
+        reference_description="PyTorch AdamW in FP32, original source masters, identical native gradients unscaled and clipped before each update")
     source = Path(source)
     print("Checking Adam and nonfinite-gradient rejection", flush=True)
     summary = {"passed": False, "optimizer": optimizer_check(output)}
