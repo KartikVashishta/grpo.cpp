@@ -36,6 +36,11 @@ network and image-build costs. Keep the first calibration/pilot stage within
 $5 and inspect each result before starting another job. This is a per-job
 bound; the script does not enforce an account-wide spending limit.
 
+If L4 capacity is unavailable, `--gpu H100` uses a 20-minute hard timeout and
+checks for a training stop after 15 minutes. Its requested resources cost about
+$1.39 for the full 20 minutes, with the same exclusions. An H100 run does not
+prove L4 fit; never compare its timings directly with an L4 result.
+
 `config.json` pins the model, data and recipe. `data_manifest.json` pins the
 actual split bytes. `requirements.lock` pins the resolved Linux/Python 3.11
 environment, including transitive dependencies. The source has 490,364 rows and 200,402 distinct

@@ -122,7 +122,8 @@ def make_report(paths, output):
     for run in runs:
         peak = run["summary"].get("training_peak")
         memory = (peak["reserved_bytes"] if peak else run["summary"]["peak_reserved_bytes"]) / 2**30
-        table += (f"<tr><td>{html.escape(run['name'])}</td><td>{html.escape(run['summary']['status'])}</td>"
+        table += (f"<tr><td>{html.escape(run['name'])}</td><td>{html.escape(run['metadata']['gpu'])}</td>"
+                  f"<td>{html.escape(run['summary']['status'])}</td>"
                   f"<td>{run['container']['function_seconds']/60:.1f} min</td>"
                   f"<td>${run['container']['estimated_compute_usd']:.3f}</td><td>{memory:.2f} GiB</td></tr>")
     # Model output is untrusted text. Escape the script boundary and render with textContent.
@@ -137,9 +138,9 @@ label{display:block;margin:14px 0}select{max-width:100%;font:inherit;padding:8px
 input{width:100%;max-width:520px;vertical-align:middle}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:18px/1.6 monospace;background:#efeee9;padding:18px}
 .answer{border-top:1px solid #d8d7d3;padding:14px 0}.correct{color:#17616d}.failure{color:#9a452b}.note{font-size:13px;color:#566067}
 </style><h1>Can a small model learn Countdown cheaply?</h1>
-<p>These are recorded Qwen3-0.6B answers and measurements from a single-L4 reference pilot.
+<p>These are recorded Qwen3-0.6B answers and measurements from a single-GPU reference pilot.
 The task accepts one exact expression using every input number once.</p>
-<table><thead><tr><th>Run</th><th>Status</th><th>Function time</th><th>Estimated compute</th><th>Peak reserved</th></tr></thead>
+<table><thead><tr><th>Run</th><th>GPU</th><th>Status</th><th>Function time</th><th>Estimated compute</th><th>Peak reserved</th></tr></thead>
 <tbody>TABLE</tbody></table>
 <p class="note">Cost is a rate-based estimate, not a provider invoice. Memory is PyTorch reserved memory;
 training peaks exclude the extra model used to verify checkpoint reload. Native comparison and independent-seed testing are pending.</p>

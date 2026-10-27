@@ -127,7 +127,7 @@ def run(config, data_dir, output, mode, provenance, max_seconds=3000):
         "device_memory_bytes": torch.cuda.get_device_properties(0).total_memory,
         "timing_method": "synchronized wall time; nested stages excluded from parents",
         "cost_method": "resource-rate estimate, not a provider invoice",
-        "rates_usd_per_second": {"gpu": 0.000222, "cpu_core": 0.0000131, "ram_gib": 0.00000222},
+        "rates_usd_per_second": {"gpu": config["gpu_rate_usd_per_second"], "cpu_core": 0.0000131, "ram_gib": 0.00000222},
         "cpu_cores": 2, "ram_gib": 16, "max_seconds": max_seconds,
     }
     (output / "metadata.json").write_bytes(json_bytes(metadata))
@@ -266,7 +266,7 @@ def run(config, data_dir, output, mode, provenance, max_seconds=3000):
                "steps_completed": steps_completed,
                "stop_reason": "finished" if finished else "time_limit",
                "training_peak": training_peak, "elapsed_seconds": elapsed,
-               "estimated_compute_usd": elapsed * (0.000222 + 2 * 0.0000131 + 16 * 0.00000222),
+               "estimated_compute_usd": elapsed * (config["gpu_rate_usd_per_second"] + 2 * 0.0000131 + 16 * 0.00000222),
                "stage_seconds": dict(timings.seconds),
                "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
                "peak_reserved_bytes": torch.cuda.max_memory_reserved()}

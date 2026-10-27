@@ -32,14 +32,15 @@ def execute(config, run_id, mode, provenance):
         raise ValueError(f"Remote run already exists: {run_id}")
     started = time.perf_counter()
     try:
-        run(config, Path("/data"), output, mode, provenance)
+        run(config, Path("/data"), output, mode, provenance,
+            max_seconds=900 if config["gpu"] == "H100" else 3000)
     finally:
         if output.exists():
             volume.commit()
             elapsed = time.perf_counter() - started
             (output / "container.json").write_text(json.dumps({
                 "function_seconds": elapsed,
-                "estimated_compute_usd": elapsed * (0.000222 + 2 * 0.0000131 + 16 * 0.00000222),
+                "estimated_compute_usd": elapsed * (config["gpu_rate_usd_per_second"] + 2 * 0.0000131 + 16 * 0.00000222),
                 "note": "Includes artifact commit; excludes the final small timing-file commit, image build, startup before function entry, storage and network; not an invoice."
             }, indent=2) + "\n")
             volume.commit()
@@ -48,11 +49,14 @@ def execute(config, run_id, mode, provenance):
 
 
 @app.local_entrypoint()
-def main(run_id: str, mode: str = "calibrate", steps: int = 64):
+def main(run_id: str, mode: str = "calibrate", steps: int = 64, gpu: str = "L4"):
     if not run_id or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in run_id):
         raise ValueError("Use a lowercase run ID containing only letters, numbers, '-' or '_'")
     if mode not in ("calibrate", "train") or not 1 <= steps <= 256:
         raise ValueError("Use calibrate/train and 1–256 steps")
+    rates = {"L4": 0.000222, "H100": 0.001097}
+    if gpu not in rates:
+        raise ValueError("Supported measured configurations: L4 or H100")
     output = ROOT / "runs/countdown" / run_id
     if output.exists():
         raise ValueError(f"Run already exists: {output}")
@@ -61,13 +65,16 @@ def main(run_id: str, mode: str = "calibrate", steps: int = 64):
         raise ValueError("Prepare the frozen splits before launching compute")
     config = json.loads((HERE / "config.json").read_text())
     config["max_steps"] = steps
+    config["gpu"] = gpu
+    config["gpu_rate_usd_per_second"] = rates[gpu]
     tracked = sorted(p for p in HERE.iterdir() if p.is_file())
     provenance = {
         "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "files_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in tracked},
     }
-    result = execute.remote(config, run_id, mode, provenance)
+    function = execute if gpu == "L4" else execute.with_options(gpu=gpu, timeout=1200)
+    result = function.remote(config, run_id, mode, provenance)
     output.mkdir(parents=True)
     for name, content in result.items():
         (output / name).write_text(content)

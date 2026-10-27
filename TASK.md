@@ -58,8 +58,9 @@ job before starting it and keep credentials outside this repository.
   PyArrow 24 or newer. Updated the explicit PyArrow pin to 24.0.0; this was a
   dependency resolution failure, not a model or learning result.
 - The corrected image resolved successfully. Calibration app
-  `ap-U7z9D7nQuZLJb43OEzmns1` is queued for one L4; the provider reports one
-  queued input and no running container. No model samples are available yet.
+  `ap-U7z9D7nQuZLJb43OEzmns1` remained queued with no running L4 container.
+  Stopped it before trying the authorized H100 with a 20-minute timeout.
+  An H100 result will not establish the planned 24 GB memory target.
 
 The main thread owns integration. Independent read-only reviews cover existing
 loss correctness, the candidate native backend and reference-trainer APIs.
