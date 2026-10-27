@@ -11,9 +11,10 @@ logits backward so the intermediate arrays never need to exist.
 rollouts -> rewards -> group advantages -> clipped loss -> dlogits -> update
 ```
 
-The next experiment is [Qwen3-0.6B on Countdown](experiments/countdown/README.md):
-the first reference run went from 3.9% to 41.8% on 256 development puzzles in
-64 updates. The native Qwen path is next.
+The [Qwen3-0.6B Countdown experiment](experiments/countdown/README.md) now trains
+on full responses. After 64 updates, the native run solved 87/256 development
+puzzles in 77 seconds; TRL solved 107/256 in 398 seconds. That is a faster run
+with a lower final score. The plots include both curves and recorded answers.
 
 ## Build
 
@@ -57,6 +58,8 @@ curl -L -o gpt2_124M.bin \
 - [`src/cuda/grpo_loss_cuda.cu`](src/cuda/grpo_loss_cuda.cu) has the selected
   log-probability kernels and the fused logits path.
 - [`examples/gpt2_grpo.cu`](examples/gpt2_grpo.cu) connects that path to GPT-2.
+- [`examples/qwen_train.cu`](examples/qwen_train.cu) handles Qwen generation,
+  GRPO updates and checkpoints. The Countdown script supplies tokens and rewards.
 - [`examples/gpt2_grpo_2gpu.cu`](examples/gpt2_grpo_2gpu.cu) adds synchronous
   NCCL gradient averaging.
 

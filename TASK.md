@@ -10,6 +10,9 @@ memory, cost and a repeat seed. Pins are in `experiments/countdown/config.json`.
   29/128 mixed-reward groups. The original prompt had no correct responses.
 - TRL (`reference-h100-01`, `d2b2ee7`) reached 107/256 development answers
   after 64 updates, up from 10/256. Function time: 397.5 seconds, about $0.46.
+- Native (`native-h100-01`, `12d5c57`) reached 87/256 after 64 updates, up from
+  15/256: 80 gains and eight regressions. Function time: 77.2 seconds, about
+  $0.09. Reload reproduced all sampled tokens on 32 development puzzles.
 - Native gradients (`native-parity-02`, `e813a7d`) differ from FP32 PyTorch
   by 0.56% on the fixed fixture. Three Adam updates (`native-update-01`,
   `1116756`) match within 1.2e-7. Saved weights reload in native and HF models.
@@ -23,10 +26,11 @@ at FP16 ties; the check verifies actual argmax choices and probability error.
 Earlier failures remain in `experiments/countdown/results.tar.gz`, along with
 the measurements. The README has the plots and commands.
 
-Next: train with the same prompt order as TRL and compare the development curve.
-The native learning result, fixed-work timing, 24 GB run, final test and repeat
-seed are still open. This chat owns integration.
+The native run is faster with a lower score. Training token counts were close
+(26,305 native, 26,709 TRL), but RNG and compute precision differ. Next: a
+fixed-work comparison, 24 GB run and repeat seed, then final testing. This chat
+owns integration.
 
-Eleven completed GPU runs total about $1.24 at listed rates, excluding image
+Thirteen completed GPU runs total about $1.36 at listed rates, excluding image
 builds and startup. No GPU job is left running. Budget: $5 pilot, $15 native
 comparison, $5 repeat, $5 contingency. These are estimates, not billing receipts.

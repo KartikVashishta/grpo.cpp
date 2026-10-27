@@ -24,7 +24,7 @@ def make_report(paths, output):
              "summary": json.loads((p / "summary.json").read_text()),
              "metadata": json.loads((p / "metadata.json").read_text()),
              "container": json.loads((p / "container.json").read_text())} for p in paths]
-    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
+    plt.rcParams.update({"font.family": "sans-serif", "font.sans-serif": ["DejaVu Sans", "Arial"], "font.size": 10,
                          "axes.spines.top": False, "axes.spines.right": False,
                          "axes.titleweight": "bold", "figure.facecolor": "#faf9f6",
                          "axes.facecolor": "#faf9f6", "axes.edgecolor": "#b6b5b1",
@@ -96,9 +96,9 @@ def make_report(paths, output):
         for ax in axes:
             ax.grid(axis="y", alpha=.15)
             ax.legend(frameon=False, fontsize=8)
-        fig.suptitle("Reference pilot · sampled held-out answers", fontsize=14)
+        fig.suptitle("Countdown · sampled development answers", fontsize=14)
         fig.supxlabel("Numbers mark updates. Bands: 95% Wilson intervals over prompts, not training-seed uncertainty.\n"
-                      "Cost uses elapsed run time × resource rates; excludes image build and pre-entry startup.", fontsize=8)
+                      "Cost stops at each evaluation; excludes the final save, reload, artifact commit, image build and startup.", fontsize=8)
         save(fig, "learning")
 
         fig, ax = plt.subplots(figsize=(10, max(3, len(training) * .8 + 1.7)), layout="constrained")
@@ -112,7 +112,7 @@ def make_report(paths, output):
             left += values
         rest = [max(0, r["container"]["function_seconds"]/60-left[i]) for i, r in enumerate(training)]
         ax.barh([r["name"] for r in training], rest, left=left, label="Load, save + other", color="#b8b6b0")
-        ax.set(xlabel="Minutes", title="Where the reference run spends its time")
+        ax.set(xlabel="Minutes", title="Where the runs spend their time")
         ax.legend(loc="upper center", bbox_to_anchor=(.5, -.22), ncol=3, frameon=False, fontsize=9)
         save(fig, "runtime")
 
@@ -120,16 +120,23 @@ def make_report(paths, output):
                          base64.b64encode(p.read_bytes()).decode() + '">' for p in figures)
     table = ""
     for run in runs:
-        peak = run["summary"].get("training_peak")
-        memory = (peak["reserved_bytes"] if peak else run["summary"]["peak_reserved_bytes"]) / 2**30
+        summary = run["summary"]
+        if "sampled_device_used_bytes" in summary:
+            memory = summary["sampled_device_used_bytes"] / 2**30
+            memory_label = "sampled device"
+        else:
+            peak = summary.get("training_peak")
+            memory = (peak["reserved_bytes"] if peak else summary["peak_reserved_bytes"]) / 2**30
+            memory_label = "PyTorch reserved"
         table += (f"<tr><td>{html.escape(run['name'])}</td><td>{html.escape(run['metadata']['gpu'])}</td>"
                   f"<td>{html.escape(run['summary']['status'])}</td>"
                   f"<td>{run['container']['function_seconds']/60:.1f} min</td>"
-                  f"<td>${run['container']['estimated_compute_usd']:.3f}</td><td>{memory:.2f} GiB</td></tr>")
+                  f"<td>${run['container']['estimated_compute_usd']:.3f}</td>"
+                  f"<td>{memory:.2f} GiB<br><small>{memory_label}</small></td></tr>")
     # Model output is untrusted text. Escape the script boundary and render with textContent.
     payload = json.dumps([{k: r[k] for k in ("name", "answers")} for r in runs]).replace("<", "\\u003c")
     page = '''<!doctype html><html lang="en"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Countdown pilot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Countdown</title>
 <style>
 body{font:16px/1.6 system-ui,sans-serif;background:#faf9f6;color:#202b30;max-width:1100px;margin:48px auto;padding:0 24px}
 h1{font-size:38px;letter-spacing:-1px;margin-bottom:8px}h2{font-size:24px;margin-top:40px}p{max-width:820px}
@@ -139,10 +146,15 @@ input{width:100%;max-width:520px;vertical-align:middle}pre{white-space:pre-wrap;
 .answer{border-top:1px solid #d8d7d3;padding:14px 0}.correct{color:#17616d}.failure{color:#9a452b}.note{font-size:13px;color:#566067}
 </style><h1>Countdown</h1>
 <p>Qwen3-0.6B, one GPU, exact arithmetic rewards.</p>
-<table><thead><tr><th>Run</th><th>GPU</th><th>Status</th><th>Function time</th><th>Estimated compute</th><th>Peak reserved</th></tr></thead>
+<table><thead><tr><th>Run</th><th>GPU</th><th>Status</th><th>Function time</th><th>Estimated compute</th><th>Memory</th></tr></thead>
 <tbody>TABLE</tbody></table>
-<p class="note">Cost is a rate-based estimate, not a provider invoice. Memory is PyTorch reserved memory;
-training peaks exclude checkpoint-reload verification.</p>
+<p class="note">Cost is a rate-based estimate. TRL records peak PyTorch reserved memory;
+the native run samples whole-device usage at stage boundaries. These measure different things.
+Both exclude checkpoint-reload verification.</p>
+<p class="note">Each curve is one training run. Native and TRL use different sampling RNGs and
+compute precision. Fixed-work timing and an independent seed are still pending.
+Curve costs stop at each evaluation; the table includes the full function, including saves,
+reload and the first artifact commit.</p>
 IMAGES
 <h2>Answers</h2>
 <label>Run <select id="run"></select></label><label>Puzzle <select id="puzzle"></select></label>

@@ -1,18 +1,23 @@
-# Countdown pilot
+# Countdown
 
-The first question is whether Qwen3-0.6B can learn this short task cheaply.
-This directory fixes the task and measures a Transformers/TRL reference run
-before we build the native model path.
+Qwen3-0.6B learns short arithmetic expressions from exact rewards. Both runs
+below start from the same checkpoint, use the same prompt order and finish
+64 updates on one H100.
 
-The first 64-update run went from 10/256 to 107/256 solved development
-puzzles: **3.9% to 41.8%**. It took 6 minutes 38 seconds on one H100 and
-reserved 12.83 GiB. Estimated compute was $0.46, excluding image build,
-pre-entry startup, storage and network. This is one seed; final testing and
-the native comparison are still ahead.
+| Run | Development answers, before → after | Function time | Estimated compute |
+| --- | ---: | ---: | ---: |
+| Native | 15/256 → 87/256 | 77 seconds | $0.09 |
+| TRL | 10/256 → 107/256 | 398 seconds | $0.46 |
+
+The native run is faster and ends with a lower score. These are single runs,
+with different sampling RNGs and model compute precision. Native training
+generated 26,305 tokens; TRL generated 26,709. A fixed-work benchmark, repeat
+seed, 24 GB run and final test are still needed. Cost excludes image builds,
+pre-entry startup, storage and network.
 
 ![Development accuracy and completion length](learning.svg)
 
-![Time spent in the reference run](runtime.svg)
+![Time spent in both runs](runtime.svg)
 
 ```text
 Numbers: 3, 7, 8
@@ -112,8 +117,8 @@ To redraw these figures without a GPU:
 mkdir -p runs/countdown
 tar -xzf experiments/countdown/results.tar.gz -C runs/countdown
 uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
-  runs/countdown/calibration-h100-02 runs/countdown/calibration-h100-03 \
-  runs/countdown/reference-h100-01 --output runs/countdown/report
+  runs/countdown/reference-h100-01 runs/countdown/native-h100-01 \
+  --output runs/countdown/report
 ```
 
 The final weights are in the `grpo-countdown` Modal volume at
@@ -207,8 +212,23 @@ modal run experiments/countdown/native_run.py --mode train --steps 64 --run-id n
 The C++ process owns generation, gradients and Adam. Python supplies tokenized
 puzzles and rewards through `native.py`; `native_train.py` uses the same exact
 verifier as the pilot. Checkpoints and raw answers stay in the Modal volume;
-small results are copied to `runs/countdown/`. Native learning and the 24 GB
-comparison are still pending.
+small results are copied to `runs/countdown/`.
+
+`native-h100-01` (`12d5c57`) went from 15 to 87 correct development answers:
+80 puzzles improved and eight regressed. The score dipped at update 32. Of
+256 training groups, 73 had mixed rewards. Native checkpoint reload reproduced
+all sampled tokens on 32 development puzzles.
+
+Native device usage reached 10.60 GiB at the sampled stage boundaries. TRL's
+12.83 GiB figure is its allocator's peak reserved memory; these are different
+measurements. Native saves at updates 16, 32, 48 and the end; TRL also writes a
+periodic checkpoint at 64 before its final save. Total times include that work.
+
+Download the trained native checkpoint:
+
+```bash
+modal volume get grpo-countdown native-h100-01/final runs/countdown/native-checkpoint
+```
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),
 [Countdown data](https://huggingface.co/datasets/Jiayi-Pan/Countdown-Tasks-3to4/tree/408f70d177020686d34a56bba5952feb45aaaee4),
