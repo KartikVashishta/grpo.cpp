@@ -183,9 +183,32 @@ modal volume get grpo-countdown native-update-01/final runs/countdown/update-che
 ```
 
 This checkpoint tests the update and file format. It is not a learned Countdown
-result; the native rollout-and-reward loop is still being connected.
+result.
 
-Native training and the 24 GB comparison are still pending.
+The generation check exercises the KV cache, EOS, full-prefix scoring, one
+controlled-reward update, checkpoint reload and memcheck:
+
+```bash
+modal run experiments/countdown/native_run.py --mode generation --run-id native-generation-check
+```
+
+`native-generation-04` passed. Selected-token log probabilities differ from
+FP32 PyTorch by at most 0.0082. Greedy output can differ across batch sizes at
+FP16 ties; the check verifies the selected token is an actual maximum, with
+unchanged probability tolerances. It also catches a sampler bug where a uniform
+rounded to 1 and produced infinite noise. Earlier failed runs are retained.
+
+To train with the reference pilot's prompt order:
+
+```bash
+modal run experiments/countdown/native_run.py --mode train --steps 64 --run-id native-h100-01
+```
+
+The C++ process owns generation, gradients and Adam. Python supplies tokenized
+puzzles and rewards through `native.py`; `native_train.py` uses the same exact
+verifier as the pilot. Checkpoints and raw answers stay in the Modal volume;
+small results are copied to `runs/countdown/`. Native learning and the 24 GB
+comparison are still pending.
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),
 [Countdown data](https://huggingface.co/datasets/Jiayi-Pan/Countdown-Tasks-3to4/tree/408f70d177020686d34a56bba5952feb45aaaee4),

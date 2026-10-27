@@ -1,4 +1,4 @@
-"""Build and check the native Qwen model on Modal."""
+"""Build and run the native Qwen model on Modal."""
 
 import hashlib
 import json
@@ -10,6 +10,7 @@ import modal
 
 HERE = Path(__file__).resolve().parent if modal.is_local() else Path("/experiment")
 ROOT = HERE.parent.parent if modal.is_local() else Path("/src")
+DATA = ROOT / "runs/countdown/data" if modal.is_local() else Path("/data")
 app = modal.App("grpo-native")
 volume = modal.Volume.from_name("grpo-countdown")
 image = (modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu24.04", add_python="3.11")
@@ -23,7 +24,8 @@ for directory in ("cmake", "include", "src", "tests", "bench", "examples"):
 image = (image.run_commands(
     "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON -DCMAKE_CUDA_ARCHITECTURES=90",
     "cmake --build /build --target qwen_train qwen_probe test_qwen_sampler test_qwen_embedding test_qwen_optimizer bench_grpo_loss_cuda -j2")
-    .add_local_dir(HERE, "/experiment", ignore=["__pycache__", ".DS_Store"]))
+    .add_local_dir(HERE, "/experiment", ignore=["__pycache__", ".DS_Store"])
+    .add_local_dir(DATA, "/data", ignore=["source.parquet", ".DS_Store"]))
 
 
 @app.function(image=image, timeout=120)
@@ -54,20 +56,25 @@ def build_check():
 @app.function(image=image, gpu="H100", cpu=(2, 2), memory=(16384, 16384),
               timeout=1200, retries=0, max_containers=1, scaledown_window=2,
               volumes={"/artifacts": volume})
-def execute(run_id, provenance, mode):
+def execute(run_id, provenance, mode, steps):
     import sys
     sys.path.insert(0, "/experiment")
     if mode == "parity":
         from parity import run
     elif mode == "update":
         from update_check import run
-    else:
+    elif mode == "generation":
         from generation_check import run
+    else:
+        from native_train import run
     output = Path("/artifacts") / run_id
     output.mkdir()
     started = time.perf_counter()
     try:
-        run(output, provenance)
+        if mode == "train":
+            run(output, provenance, steps)
+        else:
+            run(output, provenance)
     except Exception as error:
         import traceback
         (output / "error.txt").write_text(traceback.format_exc())
@@ -88,9 +95,9 @@ def execute(run_id, provenance, mode):
 
 
 @app.local_entrypoint()
-def main(run_id: str = "", build_only: bool = False, mode: str = "parity"):
-    if mode not in ("parity", "update", "generation"):
-        raise ValueError("Use parity, update or generation")
+def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps: int = 64):
+    if mode not in ("parity", "update", "generation", "train") or not 1 <= steps <= 64:
+        raise ValueError("Use parity, update, generation or train, with 1 to 64 steps")
     if build_only:
         print(build_check.remote())
         return
@@ -108,7 +115,7 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity"):
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "files_sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)},
     }
-    result = execute.remote(run_id, provenance, mode)
+    result = execute.remote(run_id, provenance, mode, steps)
     output.mkdir(parents=True)
     for name, content in result.items():
         (output / name).write_text(content)
