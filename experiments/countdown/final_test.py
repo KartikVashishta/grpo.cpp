@@ -13,7 +13,7 @@ from pilot import append_json, sample, summarize
 from task import verify
 
 
-def checkpoints(experiment, names):
+def checkpoints(experiment, names, runs=None):
     if not names or len(set(names)) != len(names):
         raise ValueError("Choose each checkpoint run once")
     config = json.loads((experiment / "config.json").read_text())
@@ -21,8 +21,13 @@ def checkpoints(experiment, names):
     result = []
     with tarfile.open(experiment / "results.tar.gz") as archive:
         for name in names:
-            metadata = json.load(archive.extractfile(f"{name}/metadata.json"))
-            summary = json.load(archive.extractfile(f"{name}/summary.json"))
+            saved_run = runs / name if runs else None
+            if saved_run and saved_run.is_dir():
+                metadata = json.loads((saved_run / "metadata.json").read_text())
+                summary = json.loads((saved_run / "summary.json").read_text())
+            else:
+                metadata = json.load(archive.extractfile(f"{name}/metadata.json"))
+                summary = json.load(archive.extractfile(f"{name}/summary.json"))
             if summary["status"] != "complete" or summary["steps_completed"] != 64:
                 raise ValueError(f"Expected a completed 64-update run: {name}")
             if any(metadata["config"][k] != v for k, v in config.items() if k != "seed"):
@@ -40,7 +45,7 @@ def run(output, provenance, names):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     started = time.perf_counter()
-    config, manifest, selected = checkpoints(Path("/experiment"), names)
+    config, manifest, selected = checkpoints(Path("/experiment"), names, Path("/artifacts"))
     for row in selected:
         path = Path("/artifacts") / row["run"] / "final/model.safetensors"
         with path.open("rb") as file:

@@ -124,7 +124,7 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps
         import sys
         sys.path.insert(0, str(HERE))
         from native_train import training_data
-        training_data(HERE, DATA, steps, reference_run)
+        training_data(HERE, DATA, steps, reference_run, DATA.parent)
     selected = test_runs.split(",") if test_runs else []
     if mode == "test":
         import sys
@@ -133,7 +133,7 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps
         if not selected or any(not name or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in name)
                                for name in selected):
             raise ValueError("Provide comma-separated checkpoint run IDs with --test-runs")
-        checkpoints(HERE, selected)
+        checkpoints(HERE, selected, DATA.parent)
     files = [ROOT / "CMakeLists.txt"]
     for directory in ("cmake", "include", "src", "tests", "bench", "examples", "experiments/countdown"):
         files.extend(p for p in (ROOT / directory).rglob("*")

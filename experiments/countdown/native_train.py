@@ -13,11 +13,16 @@ from pilot import append_json, summarize
 from task import verify
 
 
-def training_data(experiment, data, steps, reference_run):
+def training_data(experiment, data, steps, reference_run, runs=None):
     config = json.loads((experiment / "config.json").read_text())
-    with tarfile.open(experiment / "results.tar.gz") as archive:
-        rollout_content = archive.extractfile(f"{reference_run}/rollouts.jsonl").read()
-        reference_metadata = json.load(archive.extractfile(f"{reference_run}/metadata.json"))
+    saved_run = runs / reference_run if runs else None
+    if saved_run and saved_run.is_dir():
+        rollout_content = (saved_run / "rollouts.jsonl").read_bytes()
+        reference_metadata = json.loads((saved_run / "metadata.json").read_text())
+    else:
+        with tarfile.open(experiment / "results.tar.gz") as archive:
+            rollout_content = archive.extractfile(f"{reference_run}/rollouts.jsonl").read()
+            reference_metadata = json.load(archive.extractfile(f"{reference_run}/metadata.json"))
     saved = reference_metadata["config"]
     if any(saved[key] != value for key, value in config.items() if key not in ("seed", "max_steps")):
         raise ValueError("Reference run uses a different recipe")
@@ -58,7 +63,7 @@ def run(output, provenance, steps=64, reference_run="reference-h100-01", gpu_rat
 
     started = time.perf_counter()
     config, manifest, splits, schedule, order = training_data(
-        Path("/experiment"), Path("/data"), steps, reference_run)
+        Path("/experiment"), Path("/data"), steps, reference_run, Path("/artifacts"))
     model_dir, _, _, _ = prepare(output, provenance, limits={},
         reference_description="Native GRPO, centered rewards, one pass, FP16 model and FP32 Adam masters")
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
