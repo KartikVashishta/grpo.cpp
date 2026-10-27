@@ -57,9 +57,9 @@ def main(run_id: str, mode: str = "calibrate", steps: int = 64, gpu: str = "L4",
         raise ValueError("Use calibrate/train and 1–256 steps")
     if not 0 <= seed < 2**31:
         raise ValueError("Use a seed between 0 and 2**31-1")
-    rates = {"L4": 0.000222, "H100": 0.001097}
+    rates = {"L4": 0.000222, "A10": 0.000306, "H100": 0.001097}
     if gpu not in rates:
-        raise ValueError("Supported measured configurations: L4 or H100")
+        raise ValueError("Use L4, A10 or H100")
     output = ROOT / "runs/countdown" / run_id
     if output.exists():
         raise ValueError(f"Run already exists: {output}")
@@ -77,7 +77,7 @@ def main(run_id: str, mode: str = "calibrate", steps: int = 64, gpu: str = "L4",
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         "files_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in tracked},
     }
-    function = execute if gpu == "L4" else execute.with_options(gpu=gpu, timeout=1200)
+    function = execute.with_options(gpu=gpu, timeout=1200 if gpu == "H100" else 3600)
     result = function.remote(config, run_id, mode, provenance)
     output.mkdir(parents=True)
     for name, content in result.items():
