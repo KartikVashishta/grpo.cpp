@@ -5,13 +5,13 @@ import hashlib
 import json
 from pathlib import Path
 import statistics
-import subprocess
 import tarfile
 import time
 
 from native import Native, prompt_ids
 from parity import prepare
 from task import messages, verify
+from update_check import optimizer_check
 
 
 def torch_batch(model_dir, fixture):
@@ -136,8 +136,8 @@ def run(output, provenance):
         tokens=sum(len(row) for row in fixture["completions"]),
         microbatch=2, gradient_accumulation=16, group_size=8)
     (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    subprocess.run(["/build/test_qwen_optimizer"], check=True, timeout=60,
-                   stdout=(output / "optimizer-check.txt").open("w"), stderr=subprocess.STDOUT)
+    checks = optimizer_check(output)
+    (output / "optimizer-check.json").write_text(json.dumps(checks, indent=2) + "\n")
     results = []
     for round in range(3):
         for implementation in (("native", "trl") if round % 2 == 0 else ("trl", "native")):
