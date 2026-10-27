@@ -172,6 +172,19 @@ checks a native roundtrip and a Transformers reload. The saved checkpoint has
 FP32 master weights and tokenizer files. It restarts with fresh optimizer state;
 it does not resume the same training trajectory.
 
+`native-update-01` passed three updates over all 310 parameter tensors. The
+largest absolute weight difference from PyTorch was 1.2e-7; native and
+Transformers reloads preserved all saved weights. Its 86.4-second function cost
+about $0.10. The measurements are in `results.tar.gz`. The checkpoint is about
+2.4 GB and stays in the Modal volume:
+
+```bash
+modal volume get grpo-countdown native-update-01/final runs/countdown/update-checkpoint
+```
+
+This checkpoint tests the update and file format. It is not a learned Countdown
+result; the native rollout-and-reward loop is still being connected.
+
 Native training and the 24 GB comparison are still pending.
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),

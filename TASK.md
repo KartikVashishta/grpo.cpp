@@ -14,8 +14,8 @@ memory, cost and a repeat seed. Pins are in `experiments/countdown/config.json`.
 - The function ran for 397.5 seconds, reserving 12.83 GiB. Estimated compute:
   $0.46. Final weights reloaded with identical tokens on 32 development puzzles.
 - Raw answers and measurements are in `experiments/countdown/results.tar.gz`;
-  the README has the plots. Five Python tests and three C++ tests pass.
-- Six completed GPU checks total about $1.00 at listed rates. Image builds,
+  the README has the plots. Six Python checks and three CPU C++ tests pass.
+- Seven completed GPU checks total about $1.10 at listed rates. Image builds,
   an H100 startup failure and other startup charges are not in that estimate.
   The failed job was stopped and its remote-import bug fixed. L4 stayed queued.
 
@@ -30,10 +30,16 @@ repeated rows in FP32 cut that difference from 0.005% to 0.0000022%, with the
 same fixture and tolerances. Both runs and the plot are in the results bundle.
 The reduction suits short microbatches; large batches will need a faster one.
 
-Clipped Adam and model-only checkpoint export are implemented, with runtime
-checks still pending. Next: compare three updates with PyTorch and verify native
-and Transformers reloads. Gradients stay scaled until Adam reads them as FP32;
-the norm excludes attention scratch. Loading preserves original master weights.
+`native-update-01` (`1116756`) passes three Adam updates across all 310 tensors.
+The largest weight difference from PyTorch is 1.2e-7. Native and Transformers
+reloads preserve every saved weight; tokenizer prompt IDs also match. Clipping,
+tiny gradients, zero-gradient momentum and nonfinite rejection pass separately.
+The run took 86.4 seconds, about $0.10. The model-only checkpoint is in the Modal
+volume at `native-update-01/final`; optimizer state is not saved.
+
+Next: generate full responses with the same model, connect rewards and the GRPO
+loss, then run a short native learning check. Use explicit KV limits and keep
+EOS, prompt masks and generated-prefix scoring consistent with the pilot.
 
 Native learning, the 24 GB run, final testing and the repeat seed remain open.
 This chat owns integration. Budget: $5 pilot, $15 native comparison, $5 repeat,
