@@ -11,6 +11,11 @@ logits backward so the intermediate arrays never need to exist.
 rollouts -> rewards -> group advantages -> clipped loss -> dlogits -> update
 ```
 
+The next experiment is [Qwen3-0.6B on Countdown](experiments/countdown/README.md):
+strict arithmetic rewards, fixed held-out puzzles and a measured training cost.
+The reference pilot comes first. The native Qwen path and its performance are
+still work in progress.
+
 ## Build
 
 The default build is plain C++20:

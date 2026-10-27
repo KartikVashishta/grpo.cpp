@@ -1,0 +1,26 @@
+{
+  "dataset": "Jiayi-Pan/Countdown-Tasks-3to4",
+  "distinct_three_number_puzzles": 200402,
+  "revision": "408f70d177020686d34a56bba5952feb45aaaee4",
+  "source_rows": 490364,
+  "source_sha256": "a1b37bea0f439c858b11b908daa682e521f13f9592f1866b08650f58b730d126",
+  "split_seed": 20261028,
+  "splits": {
+    "calibration": {
+      "count": 128,
+      "sha256": "ff03c5cad4afef4199b8a1dbbcd418965a22ef04606737ce0ded5060fdbd7609"
+    },
+    "dev": {
+      "count": 256,
+      "sha256": "afc365bd2d4ebcd182e8a5657580cd7b76dc7ee6388929369f512520ee69f798"
+    },
+    "test": {
+      "count": 512,
+      "sha256": "bf8de4aeb1d5e68217727778c85f54e98660f94bd9e9f612d83b374883389f62"
+    },
+    "train": {
+      "count": 8192,
+      "sha256": "9aa4824d25d4c523ca93c0028c3f864ef5ec3cf99f2913aca2389ffb3dd7a6c1"
+    }
+  }
+}
