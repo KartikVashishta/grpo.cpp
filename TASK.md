@@ -1,32 +1,33 @@
 # Countdown
 
-Build a small one-GPU Qwen3-0.6B trainer, with usable checkpoints, held-out
-scores, timing, memory, cost and repeat seeds. Keep the fixed Countdown recipe
-in `experiments/countdown/config.json`.
+Build a small one-GPU Qwen3-0.6B trainer with usable checkpoints, held-out
+scores, timing, memory, cost and repeat seeds. The recipe is fixed in
+`experiments/countdown/config.json`.
 
-28 October:
+28 October — finished:
 
-- Both H100 seeds finished 64 updates. Native took 77 and 89 seconds;
-  TRL took 398 and 242 seconds. All four checkpoint reload checks passed.
-- The frozen final test gave native 174/512 and 196/512, up from 25 and 12.
-  TRL reached 214/512 and 202/512, up from 20 and 15. No checkpoint was
-  selected or recipe changed using these test results (`test-h100-01`, `db6b1b5`).
-- Replaying identical token IDs and rewards took a median 0.440 seconds
-  native and 1.965 seconds TRL for forward/loss/backward (`fixed-work-h100-02`,
-  `9b97b95`). Fifteen samples each; weights fixed. Precision and bookkeeping
-  differ. The 4.92% norm gap checks scaling, not full-gradient parity.
-- L4 and A10 passed generation, backward, reload and memcheck. Both native
-  A10 runs finished: 98/256 and 84/256 development answers in 143 and 131
-  seconds. The first A10 reference reached 90/256 in 439 seconds; its second
-  seed is running. Native sampled device usage stayed around 10.27 GiB.
+- Two native A10 runs reached 198/512 and 179/512 on the frozen final test,
+  up from 26 and 14. Training took 143 and 131 seconds, about $0.05 each.
+  TRL reached 183/512 and 199/512 in 439 and 392 seconds. Native was faster;
+  the test-score advantage changed sides (`test-a10-01`, source `141b3de`).
+- Both implementations fit a 24 GB GPU. Native sampled device usage was
+  10.27 GiB; TRL reserved 11.99 GiB. The memory measures differ.
+- Both H100 seeds also learned. Native reached 174/512 and 196/512;
+  TRL reached 214/512 and 202/512 (`test-h100-01`, source `db6b1b5`).
+- The same recorded batch took 0.440 seconds through native forward/loss/
+  backward and 1.965 seconds through TRL (`fixed-work-h100-02`, `9b97b95`).
+  Precision and bookkeeping differ; this is not a quality comparison.
+- Gradient and Adam checks passed against PyTorch. Generation, reload and
+  memcheck passed on H100, L4 and A10. All eight trained checkpoints reproduced
+  the saved tokens on reload. No recipe or checkpoint was chosen from test scores.
 
-The native runs learn and cost less here, but TRL has higher final-test scores.
-Raw answers, earlier failures and measurements stay in `results.tar.gz`.
-The report shows both seeds and lets you inspect final-test failures too.
+Raw answers and measurements, including failed attempts, are in
+`experiments/countdown/results.tar.gz`. The README has the plots and commands
+to rebuild the answer viewer. The downloaded model at
+`runs/countdown/native-a10-01/final/` matches the weights used in the final test.
 
-Next: finish the second A10 reference and test all four final checkpoints on
-A10, then update the plots. The recipe and 64-update stop stay fixed.
+Twenty-five GPU functions total about $2.54 at recorded rates, excluding builds,
+startup, storage and network, against a $30 budget. All GPU jobs have stopped.
 
-Twenty-three completed GPU runs total about $2.32 at listed rates, excluding builds
-and startup. Budget caps remain $5 pilot, $15 native comparison, $5 repeat and
-$5 contingency.
+The checkpoints save model weights, not optimizer state. Two seeds do not prove
+equal learning quality or a general advantage over other trainers.

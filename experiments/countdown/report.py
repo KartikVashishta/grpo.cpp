@@ -28,11 +28,12 @@ def make_report(paths, output, benchmark=None, test=None):
                          "axes.spines.top": False, "axes.spines.right": False,
                          "axes.titleweight": "bold", "figure.facecolor": "#faf9f6",
                          "axes.facecolor": "#faf9f6", "axes.edgecolor": "#b6b5b1",
-                         "svg.fonttype": "none", "savefig.facecolor": "#faf9f6"})
+                         "svg.fonttype": "none", "svg.hashsalt": "countdown",
+                         "savefig.facecolor": "#faf9f6"})
     figures = []
 
     def save(fig, name):
-        fig.savefig(output / f"{name}.svg", bbox_inches="tight")
+        fig.savefig(output / f"{name}.svg", bbox_inches="tight", metadata={"Date": None})
         fig.savefig(output / f"{name}.png", dpi=180, bbox_inches="tight")
         plt.close(fig)
         figures.append(output / f"{name}.svg")

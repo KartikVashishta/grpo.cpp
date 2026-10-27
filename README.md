@@ -12,16 +12,18 @@ rollouts -> rewards -> group advantages -> clipped loss -> dlogits -> update
 ```
 
 The [Qwen3-0.6B Countdown experiment](experiments/countdown/README.md) now trains
-on full responses. Two native runs took 77 and 89 seconds on one H100 and
-scored 174/512 and 196/512 on the frozen final test. TRL took 398 and 242 seconds
-and scored 214/512 and 202/512. Native is faster here; TRL has higher test scores.
+on full responses. On one 24 GB A10, two native runs took 143 and 131 seconds,
+used about five cents of estimated compute each, and scored 198/512 and 179/512
+on the frozen final test. TRL took 439 and 392 seconds and scored 183/512 and
+199/512. Native was faster in both seeds; the test-score advantage changed sides.
+Costs exclude image builds, pre-entry startup and final testing.
 
-The same recorded token batch takes 0.440 seconds through native forward,
+On H100, the same recorded token batch takes 0.440 seconds through native forward,
 loss and backward, versus 1.965 seconds through TRL. This includes TRL's tiled
 head; compute precision and bookkeeping differ. The experiment has the raw
 measurements, ordinary model checkpoints and an answer viewer.
 
-![Countdown learning and completion length](experiments/countdown/learning.svg)
+![Countdown learning on A10](experiments/countdown/learning-a10.svg)
 
 ## Build
 
@@ -136,3 +138,4 @@ to the CPU in the GPT-2 example.
 - [DAPO](https://arxiv.org/abs/2503.14476)
 - [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867)
 - [`llm.c`](https://github.com/karpathy/llm.c)
+- [`RL.cu`, the pinned Qwen model and kernels](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6)
