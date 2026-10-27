@@ -62,6 +62,19 @@ def run(output, provenance):
         # Greedy batches and single-sequence decoding must follow the same prefix.
         singles = [engine.call("generate", prompts=[row], **settings)["completions"][0] for row in varied]
         summary["greedy_batch_matches_singles"] = singles == generated["completions"]
+        divergences = []
+        for row, (single, batch) in enumerate(zip(singles, generated["completions"], strict=True)):
+            difference = next((i for i, (a, b) in enumerate(zip(single, batch)) if a != b), None)
+            if difference is None:
+                continue
+            candidates = [single[:difference+1], batch[:difference+1]]
+            values = engine.call("score", prompts=[varied[row]] * 2, completions=candidates)["logps"]
+            divergences.append({"row": row, "position": difference,
+                                "candidates": candidates, "logps": values,
+                                "last_token_logp_gap": values[0][-1] - values[1][-1]})
+        records.update(singles=singles, greedy_divergences=divergences)
+        (output / "generation.json").write_text(json.dumps(records, indent=2) + "\n")
+        (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         assert summary["greedy_batch_matches_singles"]
         training_prompts = [row for row in prompts for _ in range(8)]
         rollout = engine.call("generate", prompts=training_prompts,
