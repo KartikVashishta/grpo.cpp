@@ -15,20 +15,24 @@ memory, cost and a repeat seed. Pins are in `experiments/countdown/config.json`.
   $0.46. Final weights reloaded with identical tokens on 32 development puzzles.
 - Raw answers and measurements are in `experiments/countdown/results.tar.gz`;
   the README has the plots. Five Python tests and three C++ tests pass.
-- Four completed GPU checks total about $0.71 at listed rates. Image builds,
+- Six completed GPU checks total about $1.00 at listed rates. Image builds,
   an H100 startup failure and other startup charges are not in that estimate.
   The failed job was stopped and its remote-import bug fixed. L4 stayed queued.
 
-The first native check (`ee27c93`) passed forward/gradient comparison and CUDA
-memcheck. Loss scaling cut relative gradient error from 1.55% to 0.56%.
-The full check failed: repeated runs varied by 0.005%, mainly from FP16 embedding
-atomics. Padding and FP32 loading showed the same variation. The run cost about
-$0.15 for 129 seconds. Raw measurements are in `runs/countdown/native-parity-01`.
+The native check now passes (`native-parity-02`, `e813a7d`): all 310 parameter
+tensors, padding, microbatches, FP32 weight loading and zero gradients. Relative
+gradient error is 0.56% with loss scaling, versus 1.55% without. CUDA loss checks,
+the repeated-token regression and memcheck pass. This covers one two-sequence
+fixture, not optimizer updates or native learning.
 
-The embedding patch now sums repeated rows in FP32 and rounds once, preserving
-the tied head's gradient. Next: rerun the same tolerances and memcheck. This
-simple reduction suits short microbatches; large batches will need a faster one.
-RL.cu remains pinned at `77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6`.
+The first run failed the repeat check because of FP16 embedding atomics. Summing
+repeated rows in FP32 cut that difference from 0.005% to 0.0000022%, with the
+same fixture and tolerances. Both runs and the plot are in the results bundle.
+The reduction suits short microbatches; large batches will need a faster one.
+
+Next: compare clipped Adam updates with PyTorch, export FP32 master weights and
+verify checkpoint reload. Keep scaled gradients until the Adam kernel converts
+them to FP32; exclude attention scratch memory from the gradient norm.
 
 Native learning, the 24 GB run, final testing and the repeat seed remain open.
 This chat owns integration. Budget: $5 pilot, $15 native comparison, $5 repeat,

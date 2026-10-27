@@ -145,6 +145,22 @@ The embedding reduction scans matching rows in order. This keeps short
 microbatches reproducible without a full FP32 vocabulary-gradient buffer;
 large batches will need a segmented reduction.
 
+`native-parity-02` passes the native checks on the fixed two-sequence fixture. Its
+relative gradient error against FP32 PyTorch is 0.56% with scaling and 1.55%
+without. The first run failed the repeat check; summing repeated embedding
+rows in FP32 brought the difference below the original tolerance. Both runs
+are in `results.tar.gz` and cost about $0.29 in estimated function time.
+
+![Native gradient checks](gradients.svg)
+
+After extracting the bundle, redraw this figure with:
+
+```bash
+uv run --with matplotlib==3.10.8 python experiments/countdown/plot_parity.py \
+  runs/countdown/native-parity-01 runs/countdown/native-parity-02 \
+  --output runs/countdown/report/gradients
+```
+
 Native training, checkpoint export and the 24 GB comparison are still pending.
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),

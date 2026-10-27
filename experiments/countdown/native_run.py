@@ -19,11 +19,11 @@ image = (modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu24.04", add_p
          .add_local_file(ROOT / "CMakeLists.txt", "/src/CMakeLists.txt", copy=True))
 for directory in ("cmake", "include", "src", "tests", "bench", "examples"):
     image = image.add_local_dir(ROOT / directory, "/src/" + directory,
-                                ignore=["__pycache__"], copy=True)
+                                ignore=["__pycache__", ".DS_Store"], copy=True)
 image = (image.run_commands(
     "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON -DCMAKE_CUDA_ARCHITECTURES=90",
     "cmake --build /build --target qwen_probe test_qwen_embedding bench_grpo_loss_cuda -j2")
-    .add_local_dir(HERE, "/experiment", ignore=["__pycache__"]))
+    .add_local_dir(HERE, "/experiment", ignore=["__pycache__", ".DS_Store"]))
 
 
 @app.function(image=image, timeout=120)
@@ -83,7 +83,8 @@ def main(run_id: str = "", build_only: bool = False):
         raise ValueError(f"Run already exists: {output}")
     files = [ROOT / "CMakeLists.txt"]
     for directory in ("cmake", "include", "src", "tests", "bench", "examples", "experiments/countdown"):
-        files.extend(p for p in (ROOT / directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+        files.extend(p for p in (ROOT / directory).rglob("*")
+                     if p.is_file() and "__pycache__" not in p.parts and p.name != ".DS_Store")
     provenance = {
         "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
