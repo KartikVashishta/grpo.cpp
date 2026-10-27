@@ -50,11 +50,13 @@ def execute(config, run_id, mode, provenance):
 
 
 @app.local_entrypoint()
-def main(run_id: str, mode: str = "calibrate", steps: int = 64, gpu: str = "L4"):
+def main(run_id: str, mode: str = "calibrate", steps: int = 64, gpu: str = "L4", seed: int = 42):
     if not run_id or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in run_id):
         raise ValueError("Use a lowercase run ID containing only letters, numbers, '-' or '_'")
     if mode not in ("calibrate", "train") or not 1 <= steps <= 256:
         raise ValueError("Use calibrate/train and 1–256 steps")
+    if not 0 <= seed < 2**31:
+        raise ValueError("Use a seed between 0 and 2**31-1")
     rates = {"L4": 0.000222, "H100": 0.001097}
     if gpu not in rates:
         raise ValueError("Supported measured configurations: L4 or H100")
@@ -66,6 +68,7 @@ def main(run_id: str, mode: str = "calibrate", steps: int = 64, gpu: str = "L4")
         raise ValueError("Prepare the frozen splits before launching compute")
     config = json.loads((HERE / "config.json").read_text())
     config["max_steps"] = steps
+    config["seed"] = seed
     config["gpu"] = gpu
     config["gpu_rate_usd_per_second"] = rates[gpu]
     tracked = sorted(p for p in HERE.iterdir() if p.is_file())
