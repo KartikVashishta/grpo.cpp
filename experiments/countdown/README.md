@@ -4,12 +4,12 @@ Qwen3-0.6B learns short arithmetic expressions from exact rewards. These runs
 start from the same checkpoint and finish 64 updates on one H100.
 Prompt order is matched within each seed.
 
-| Run | Development answers, before → after | Function time | Estimated compute |
-| --- | ---: | ---: | ---: |
-| Native, seed 42 | 15/256 → 87/256 | 77 seconds | $0.09 |
-| TRL, seed 42 | 10/256 → 107/256 | 398 seconds | $0.46 |
-| Native, seed 43 | 10/256 → 113/256 | 89 seconds | $0.10 |
-| TRL, seed 43 | 9/256 → 98/256 | 242 seconds | $0.28 |
+| Run | Development answers, before → after | Training tokens | Function time | Estimated compute |
+| --- | ---: | ---: | ---: | ---: |
+| Native, seed 42 | 15/256 → 87/256 | 26,305 | 77 seconds | $0.09 |
+| TRL, seed 42 | 10/256 → 107/256 | 26,709 | 398 seconds | $0.46 |
+| Native, seed 43 | 10/256 → 113/256 | 22,992 | 89 seconds | $0.10 |
+| TRL, seed 43 | 9/256 → 98/256 | 26,318 | 242 seconds | $0.28 |
 
 Native is faster in both runs. Development scores vary between seeds, and the
 implementations use different sampling RNGs and compute precision. Cost excludes
@@ -286,5 +286,5 @@ Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de28
 [Countdown data](https://huggingface.co/datasets/Jiayi-Pan/Countdown-Tasks-3to4/tree/408f70d177020686d34a56bba5952feb45aaaee4),
 [TRL 1.16 source](https://github.com/huggingface/trl/tree/1b5c75ed94b7387f42532adb090c935166d4878d),
 [Modal rates](https://modal.com/pricing). Rates checked 28 October 2026.
-The dataset card does not state a license; source rows are fetched rather than
-bundled here.
+The dataset card does not state a license. `prepare.py` downloads the source
+dataset; the results archive keeps the puzzles and answers from these runs.
