@@ -12,9 +12,16 @@ rollouts -> rewards -> group advantages -> clipped loss -> dlogits -> update
 ```
 
 The [Qwen3-0.6B Countdown experiment](experiments/countdown/README.md) now trains
-on full responses. After 64 updates, the native run solved 87/256 development
-puzzles in 77 seconds; TRL solved 107/256 in 398 seconds. That is a faster run
-with a lower final score. The plots include both curves and recorded answers.
+on full responses. Two native runs took 77 and 89 seconds on one H100 and
+scored 174/512 and 196/512 on the frozen final test. TRL took 398 and 242 seconds
+and scored 214/512 and 202/512. Native is faster here; TRL has higher test scores.
+
+The same recorded token batch takes 0.440 seconds through native forward,
+loss and backward, versus 1.965 seconds through TRL. This includes TRL's tiled
+head; compute precision and bookkeeping differ. The experiment has the raw
+measurements, ordinary model checkpoints and an answer viewer.
+
+![Countdown learning and completion length](experiments/countdown/learning.svg)
 
 ## Build
 

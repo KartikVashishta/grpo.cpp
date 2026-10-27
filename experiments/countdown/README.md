@@ -1,23 +1,51 @@
 # Countdown
 
-Qwen3-0.6B learns short arithmetic expressions from exact rewards. Both runs
-below start from the same checkpoint, use the same prompt order and finish
-64 updates on one H100.
+Qwen3-0.6B learns short arithmetic expressions from exact rewards. These runs
+start from the same checkpoint and finish 64 updates on one H100.
+Prompt order is matched within each seed.
 
 | Run | Development answers, before → after | Function time | Estimated compute |
 | --- | ---: | ---: | ---: |
-| Native | 15/256 → 87/256 | 77 seconds | $0.09 |
-| TRL | 10/256 → 107/256 | 398 seconds | $0.46 |
+| Native, seed 42 | 15/256 → 87/256 | 77 seconds | $0.09 |
+| TRL, seed 42 | 10/256 → 107/256 | 398 seconds | $0.46 |
+| Native, seed 43 | 10/256 → 113/256 | 89 seconds | $0.10 |
+| TRL, seed 43 | 9/256 → 98/256 | 242 seconds | $0.28 |
 
-The native run is faster and ends with a lower score. These are single runs,
-with different sampling RNGs and model compute precision. Native training
-generated 26,305 tokens; TRL generated 26,709. A fixed-work benchmark, repeat
-seed, 24 GB run and final test are still needed. Cost excludes image builds,
-pre-entry startup, storage and network.
+Native is faster in both runs. Development scores vary between seeds, and the
+implementations use different sampling RNGs and compute precision. Cost excludes
+image builds, pre-entry startup, storage and network. Final testing is separate.
 
 ![Development accuracy and completion length](learning.svg)
 
 ![Time spent in both runs](runtime.svg)
+
+The final test uses 512 separate puzzles and the last checkpoint from each run.
+That checkpoint choice and the training recipe were fixed before reading test
+results. Each puzzle gets one sampled answer, using the development sampling settings.
+
+| Run | Final-test answers, before → after | Gains | Regressions |
+| --- | ---: | ---: | ---: |
+| Native, seed 42 | 25/512 → 174/512 | 163 | 14 |
+| TRL, seed 42 | 20/512 → 214/512 | 205 | 11 |
+| Native, seed 43 | 12/512 → 196/512 | 187 | 3 |
+| TRL, seed 43 | 15/512 → 202/512 | 195 | 8 |
+
+TRL has higher final-test scores in both seeds. Gains and regressions compare
+sampled answers; they are not deterministic per-puzzle capability labels.
+
+For a fixed-work check, both implementations replay the same 32 completions,
+including their original token IDs, masks and centered rewards. Weights stay
+fixed. Across three alternating rounds and 15 timed batches each, median
+forward/loss/backward time is 0.440 seconds native and 1.965 seconds TRL.
+Generation, clipping and optimizer steps are outside this measurement.
+
+![Timing the same recorded batch](fixed-work.svg)
+
+TRL keeps its tiled head, entropy and clipping metrics. It computes one extra
+backbone position per row; native includes host copies and stage synchronization.
+Native uses FP16 compute, TRL BF16 autocast with FP32 parameters. The 4.92%
+gradient-norm difference is a scaling check, not full-gradient parity. These
+measurements do not establish equal learning quality.
 
 ```text
 Numbers: 3, 7, 8
@@ -39,13 +67,24 @@ From the repository root:
 ```bash
 python3 -m unittest discover -s tests -p 'test_countdown.py' -v
 uv run --with pyarrow==24.0.0 python experiments/countdown/prepare.py
-modal run experiments/countdown/modal_run.py --run-id calibration-01
-modal run experiments/countdown/modal_run.py --run-id reference-01 --mode train --steps 64
+modal run experiments/countdown/native_run.py --build-only
+modal run experiments/countdown/native_run.py --mode train --gpu H100 --run-id native-01
 ```
 
-Each call runs one L4 with two CPU cores and 16 GiB RAM, no retry, a 60-minute
+This uses the saved seed-42 reference prompt order. Add
+`--reference-run reference-h100-02` for seed 43, or supply a fresh reference run
+saved locally and in the Modal volume. To run that reference yourself:
+
+```bash
+modal run experiments/countdown/modal_run.py --run-id calibration-01 --gpu H100
+modal run experiments/countdown/modal_run.py --run-id reference-01 --mode train --steps 64 --gpu H100
+```
+
+The reference runner defaults to L4; the native runner defaults to H100.
+Both accept `--gpu L4`, `--gpu A10` or `--gpu H100`, with two CPU cores and
+16 GiB RAM. L4 and A10 runs have no retry, a 60-minute
 timeout and a training stop check after 50 minutes. One hour at the recorded
-rates is about $1.02 for those requested resources, before startup, storage,
+rates is about $1.02 on L4 or $1.32 on A10, before startup, storage,
 network and image-build costs. Keep the first calibration/pilot stage within
 $5 and inspect each result before starting another job. This is a per-job
 bound; the script does not enforce an account-wide spending limit.
@@ -61,7 +100,7 @@ environment, including transitive dependencies. The source has 490,364 rows and 
 three-number puzzles. We hash each sorted input multiset plus target, sort
 those hashes using a fixed seed, then take 128 calibration, 256 development,
 512 final-test and 8,192 training puzzles. Source row order and permutations
-cannot cross splits. The pilot does not read final-test puzzle contents.
+cannot cross splits. Training does not read final-test puzzle contents.
 
 The prompt includes two solved examples, neither present in the data splits.
 The runner uses full-support sampling at temperature 1, eight completions per
@@ -70,10 +109,9 @@ completions per training microbatch. Rewards are centered within each group,
 without standard-deviation scaling. Sequence-mean GRPO, one policy pass and
 zero KL make the first update easy to compare with the existing C++ loss.
 
-Trainable parameters and AdamW state use FP32, with BF16 autocast and gradient
-checkpointing. TRL 1.16's tiled output head is part of the reference. A native
-comparison must match this task, objective and sampling contract, and account
-for any precision difference.
+The reference uses FP32 parameters and AdamW state, BF16 autocast, gradient
+checkpointing and TRL 1.16's tiled output head. Native uses FP16 matrix weights
+and gradients, FP32 norms, and FP32 master weights and Adam state.
 
 ## Read the result
 
@@ -101,7 +139,7 @@ Generate the plots and a standalone answer viewer from saved measurements:
 
 ```bash
 uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
-  runs/countdown/calibration-01 runs/countdown/reference-01 \
+  runs/countdown/native-01 runs/countdown/reference-01 \
   --output runs/countdown/report
 ```
 
@@ -118,8 +156,22 @@ mkdir -p runs/countdown
 tar -xzf experiments/countdown/results.tar.gz -C runs/countdown
 uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
   runs/countdown/reference-h100-01 runs/countdown/native-h100-01 \
+  runs/countdown/reference-h100-02 runs/countdown/native-h100-02 \
+  --benchmark runs/countdown/fixed-work-h100-02 --test runs/countdown/test-h100-01 \
   --output runs/countdown/report
 ```
+
+To repeat fixed-work timing or evaluate new 64-update checkpoints:
+
+```bash
+modal run experiments/countdown/native_run.py --mode benchmark --run-id fixed-work-01
+modal run experiments/countdown/native_run.py --mode test \
+  --test-runs native-01,reference-01 --run-id test-01
+```
+
+The final-test command checks the run metadata, split hash and final weight
+files, then saves every answer. It never selects an earlier checkpoint.
+Pass `--test runs/countdown/test-01` to the report to browse those answers.
 
 The final weights are in the `grpo-countdown` Modal volume at
 `reference-h100-01/final`. The reload check reproduced sampled token IDs on

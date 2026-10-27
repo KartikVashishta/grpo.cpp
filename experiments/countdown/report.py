@@ -12,7 +12,7 @@ def read_lines(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def make_report(paths, output):
+def make_report(paths, output, benchmark=None, test=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -68,7 +68,7 @@ def make_report(paths, output):
     training = [r for r in runs if r["summary"]["mode"] == "train"]
     if training:
         fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), layout="constrained")
-        colors = ["#296b78", "#b05b3c", "#6a5892"]
+        upper = 0
         for index, run in enumerate(training):
             points = [p for p in run["evaluations"] if p["split"] == "dev"]
             rate = sum([run["metadata"]["rates_usd_per_second"]["gpu"],
@@ -81,23 +81,28 @@ def make_report(paths, output):
             z = 1.96
             center = (y + z*z/(2*n)) / (1 + z*z/n)
             half = z*np.sqrt(y*(1-y)/n + z*z/(4*n*n)) / (1+z*z/n)
-            color = colors[index % len(colors)]
-            axes[0].plot(x, y*100, "o-", color=color, label=run["name"], lw=2, ms=4)
+            upper = max(upper, max((center+half)*100))
+            native = "prompt_order" in run["metadata"]
+            seed = run["metadata"]["config"]["seed"]
+            gpu = next((g for g in ("H100", "L4", "A10") if g in run["metadata"]["gpu"]), run["metadata"]["gpu"])
+            label = f"{'Native' if native else 'TRL'} · {gpu} · seed {seed}"
+            color = "#296b78" if native else "#b05b3c"
+            style = ("o" if gpu == "H100" else "s") + ("-" if seed == 42 else "--")
+            axes[0].plot(x, y*100, style, color=color, label=label, lw=2, ms=4)
             axes[0].fill_between(x, (center-half)*100, (center+half)*100, color=color, alpha=.1)
-            for px, py, p in zip(x, y, points):
-                axes[0].annotate(str(p["step"]), (px, py*100), xytext=(0, 7),
-                                 textcoords="offset points", ha="center", fontsize=8)
+            axes[0].annotate(f"{round(y[-1]*n[-1])}/{n[-1]}", (x[-1], y[-1]*100),
+                             xytext=(0, 8), textcoords="offset points", ha="center", fontsize=8)
             axes[1].plot([p["step"] for p in points], [p["mean_tokens"] for p in points],
-                         "o-", color=color, label=run["name"], lw=2, ms=4)
+                         style, color=color, label=label, lw=2, ms=4)
         axes[0].set(xlabel="Estimated compute cost (USD)", ylabel="Development pass@1 (%)",
-                    title="Accuracy against cost", ylim=(0, 100))
+                    title="Accuracy against cost", ylim=(0, min(100, 10*np.ceil(upper/10))))
         axes[1].set(xlabel="Optimizer updates", ylabel="Mean generated tokens, including EOS",
                     title="Completion length")
         for ax in axes:
             ax.grid(axis="y", alpha=.15)
             ax.legend(frameon=False, fontsize=8)
         fig.suptitle("Countdown · sampled development answers", fontsize=14)
-        fig.supxlabel("Numbers mark updates. Bands: 95% Wilson intervals over prompts, not training-seed uncertainty.\n"
+        fig.supxlabel("Evaluated every 16 updates. Bands: 95% Wilson intervals over prompts, not training-seed uncertainty.\n"
                       "Cost stops at each evaluation; excludes the final save, reload, artifact commit, image build and startup.", fontsize=8)
         save(fig, "learning")
 
@@ -115,6 +120,24 @@ def make_report(paths, output):
         ax.set(xlabel="Minutes", title="Where the runs spend their time")
         ax.legend(loc="upper center", bbox_to_anchor=(.5, -.22), ncol=3, frameon=False, fontsize=9)
         save(fig, "runtime")
+
+    if benchmark:
+        samples = json.loads((benchmark / "samples.json").read_text())
+        device = json.loads((benchmark / "metadata.json").read_text())["gpu"]
+        fig, ax = plt.subplots(figsize=(9, 3.5), layout="constrained")
+        for y, name, color in [(1, "native", "#296b78"), (0, "trl", "#b05b3c")]:
+            values = [s for row in samples if row["implementation"] == name for s in row["seconds"]]
+            median = np.median(values)
+            ax.barh(y, median, height=.32, color=color, alpha=.2)
+            ax.scatter(values, y + np.linspace(-.09, .09, len(values)), color=color, s=22)
+            ax.annotate(f"{median:.3f} s", (median, y), xytext=(8, 18), textcoords="offset points", color=color)
+        ax.set(yticks=[0, 1], yticklabels=["TRL · BF16 compute", "Native · FP16 compute"],
+               xlabel="Seconds per forward + loss + backward batch", xlim=(0, None), ylim=(-.45, 1.5),
+               title=f"Same 32 recorded completions · {device}")
+        ax.grid(axis="x", alpha=.15)
+        fig.supxlabel("15 samples each, after warmup. Three rounds with alternating order; weights stay fixed.\n"
+                      "TRL includes its tiled head, entropy and one extra backbone position. No optimizer step is timed.", fontsize=8)
+        save(fig, "fixed-work")
 
     image_tags = "".join('<img alt="Measured Countdown results" src="data:image/svg+xml;base64,' +
                          base64.b64encode(p.read_bytes()).decode() + '">' for p in figures)
@@ -134,7 +157,24 @@ def make_report(paths, output):
                   f"<td>${run['container']['estimated_compute_usd']:.3f}</td>"
                   f"<td>{memory:.2f} GiB<br><small>{memory_label}</small></td></tr>")
     # Model output is untrusted text. Escape the script boundary and render with textContent.
-    payload = json.dumps([{k: r[k] for k in ("name", "answers")} for r in runs]).replace("<", "\\u003c")
+    viewed = [{k: r[k] for k in ("name", "answers")} for r in runs]
+    test_table = ""
+    if test:
+        metrics = read_lines(test / "evaluations.jsonl")
+        answers = read_lines(test / "answers.jsonl")
+        test_table = "<h2>Final test</h2><p>512 frozen puzzles, one sampled answer per puzzle. Every trained checkpoint is from update 64.</p>"
+        test_table += "<table><tr><th>Run</th><th>Before → after</th><th>Gains</th><th>Regressions</th></tr>"
+        for row in metrics:
+            viewed.append({"name": row["run"] + " · test", "answers": [a for a in answers if a["run"] == row["run"]]})
+            if row["step"] == 0:
+                continue
+            before = next(r for r in metrics if r["step"] == 0 and r["seed"] == row["seed"]
+                          and r["implementation"] == row["implementation"])
+            test_table += (f"<tr><td>{html.escape(row['run'])}</td>"
+                           f"<td>{before['statuses'].get('correct', 0)}/512 → {row['statuses'].get('correct', 0)}/512</td>"
+                           f"<td>{row['gains']}</td><td>{row['regressions']}</td></tr>")
+        test_table += "</table>"
+    payload = json.dumps(viewed).replace("<", "\\u003c")
     page = '''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Countdown</title>
 <style>
@@ -152,14 +192,15 @@ input{width:100%;max-width:520px;vertical-align:middle}pre{white-space:pre-wrap;
 the native run samples whole-device usage at stage boundaries. These measure different things.
 Both exclude checkpoint-reload verification.</p>
 <p class="note">Each curve is one training run. Native and TRL use different sampling RNGs and
-compute precision. Fixed-work timing and an independent seed are still pending.
+compute precision. These runs do not establish equal learning quality.
 Curve costs stop at each evaluation; the table includes the full function, including saves,
 reload and the first artifact commit.</p>
 IMAGES
+FINALTEST
 <h2>Answers</h2>
 <label>Run <select id="run"></select></label><label>Puzzle <select id="puzzle"></select></label>
 <label>Recorded update <input id="step" type="range" min="0" value="0"><span id="step-label"></span></label>
-<div id="answers"></div><p class="note">Calibration has eight samples per puzzle. Development evaluation has one.
+<div id="answers"></div><p class="note">Calibration has eight samples per puzzle. Development and final testing have one.
 Token counts include EOS. Only recorded checkpoints appear here; no GPU or network call is made.</p>
 <script>const runs=PAYLOAD;
 const run=document.getElementById('run'),puzzle=document.getElementById('puzzle'),step=document.getElementById('step');
@@ -176,7 +217,8 @@ const status=document.createElement('strong');status.className=a.reward?'correct
 status.textContent=a.status.replaceAll('_',' ')+' · value '+(a.value??'—')+' · '+a.tokens+' tokens · '+(a.eos?'EOS':'cap');
 const expression=document.createElement('pre');expression.textContent=a.text;item.append(status,expression);box.append(item);}}
 run.onchange=selectRun;puzzle.onchange=selectPuzzle;step.oninput=render;selectRun();</script></html>'''
-    (output / "report.html").write_text(page.replace("TABLE", table).replace("IMAGES", image_tags).replace("PAYLOAD", payload))
+    (output / "report.html").write_text(page.replace("TABLE", table).replace("IMAGES", image_tags)
+                                       .replace("FINALTEST", test_table).replace("PAYLOAD", payload))
     return output / "report.html"
 
 
@@ -184,5 +226,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runs", type=Path, nargs="+")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--benchmark", type=Path)
+    parser.add_argument("--test", type=Path)
     args = parser.parse_args()
-    print(make_report(args.runs, args.output))
+    print(make_report(args.runs, args.output, args.benchmark, args.test))
