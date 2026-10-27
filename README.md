@@ -12,9 +12,8 @@ rollouts -> rewards -> group advantages -> clipped loss -> dlogits -> update
 ```
 
 The next experiment is [Qwen3-0.6B on Countdown](experiments/countdown/README.md):
-strict arithmetic rewards, fixed held-out puzzles and a measured training cost.
-The reference pilot comes first. The native Qwen path and its performance are
-still work in progress.
+the first reference run went from 3.9% to 41.8% on 256 development puzzles in
+64 updates. The native Qwen path is next.
 
 ## Build
 

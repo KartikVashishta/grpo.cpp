@@ -4,6 +4,16 @@ The first question is whether Qwen3-0.6B can learn this short task cheaply.
 This directory fixes the task and measures a Transformers/TRL reference run
 before we build the native model path.
 
+The first 64-update run went from 10/256 to 107/256 solved development
+puzzles: **3.9% to 41.8%**. It took 6 minutes 38 seconds on one H100 and
+reserved 12.83 GiB. Estimated compute was $0.46, excluding image build,
+pre-entry startup, storage and network. This is one seed; final testing and
+the native comparison are still ahead.
+
+![Development accuracy and completion length](learning.svg)
+
+![Time spent in the reference run](runtime.svg)
+
 ```text
 Numbers: 3, 7, 8
 Target: 45
@@ -94,6 +104,23 @@ You can pass just the calibration directory before a training run exists.
 The report saves SVG and PNG figures beside `report.html`. Learning curves
 show sampled development pass@1; their intervals describe uncertainty across
 puzzles, not variation across independent training runs.
+
+The measurements and raw answers from the first runs are in `results.tar.gz`.
+To redraw these figures without a GPU:
+
+```bash
+mkdir -p runs/countdown
+tar -xzf experiments/countdown/results.tar.gz -C runs/countdown
+uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
+  runs/countdown/calibration-h100-02 runs/countdown/calibration-h100-03 \
+  runs/countdown/reference-h100-01 --output runs/countdown/report
+```
+
+The final weights are in the `grpo-countdown` Modal volume at
+`reference-h100-01/final`. The reload check reproduced sampled token IDs on
+32 development puzzles. Both calibration attempts are retained: the original
+prompt scored 0/1,024; two format examples gave 36/1,024 and 29 mixed groups.
+The examples are absent from all four data splits.
 
 ## Native backend under review
 
