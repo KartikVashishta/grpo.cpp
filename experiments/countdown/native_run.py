@@ -65,6 +65,8 @@ def execute(run_id, provenance, mode, steps):
         from update_check import run
     elif mode == "generation":
         from generation_check import run
+    elif mode == "benchmark":
+        from benchmark import run
     else:
         from native_train import run
     output = Path("/artifacts") / run_id
@@ -96,8 +98,8 @@ def execute(run_id, provenance, mode, steps):
 
 @app.local_entrypoint()
 def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps: int = 64):
-    if mode not in ("parity", "update", "generation", "train") or not 1 <= steps <= 64:
-        raise ValueError("Use parity, update, generation or train, with 1 to 64 steps")
+    if mode not in ("parity", "update", "generation", "benchmark", "train") or not 1 <= steps <= 64:
+        raise ValueError("Use parity, update, generation, benchmark or train, with 1 to 64 steps")
     if build_only:
         print(build_check.remote())
         return

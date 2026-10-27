@@ -68,15 +68,10 @@ std::vector<Tensor> tensors(const Qwen3Model& model, AdamWOptimizer& optimizer) 
 }
 }
 
-float qwen_step(AdamWOptimizer& optimizer, Qwen3Gradients& grads,
-                float loss_scale, float max_norm, cudaStream_t stream) {
-    if (!std::isfinite(loss_scale) || loss_scale < 1 || !std::isfinite(max_norm) || max_norm <= 0 ||
-        !std::isfinite(optimizer.lr) || optimizer.lr <= 0 ||
-        !(optimizer.beta1 >= 0 && optimizer.beta1 < 1) ||
-        !(optimizer.beta2 >= 0 && optimizer.beta2 < 1) ||
-        !std::isfinite(optimizer.eps) || optimizer.eps <= 0 ||
-        !std::isfinite(optimizer.weight_decay) || optimizer.weight_decay < 0)
-        throw std::runtime_error("Invalid loss scale, clipping norm or Adam settings");
+float qwen_gradient_norm(AdamWOptimizer& optimizer, Qwen3Gradients& grads,
+                         float loss_scale, cudaStream_t stream) {
+    if (!std::isfinite(loss_scale) || loss_scale < 1)
+        throw std::runtime_error("Invalid loss scale");
     float* device_sum;
     CUDA_CHECK(cudaMalloc(&device_sum, sizeof(float)));
     CUDA_CHECK(cudaMemsetAsync(device_sum, 0, sizeof(float), stream));
@@ -89,6 +84,19 @@ float qwen_step(AdamWOptimizer& optimizer, Qwen3Gradients& grads,
     CUDA_CHECK(cudaFree(device_sum));
     const float norm = std::sqrt(sum);
     if (!std::isfinite(norm)) throw std::runtime_error("Nonfinite gradient; no optimizer update made");
+    return norm;
+}
+
+float qwen_step(AdamWOptimizer& optimizer, Qwen3Gradients& grads,
+                float loss_scale, float max_norm, cudaStream_t stream) {
+    if (!std::isfinite(max_norm) || max_norm <= 0 ||
+        !std::isfinite(optimizer.lr) || optimizer.lr <= 0 ||
+        !(optimizer.beta1 >= 0 && optimizer.beta1 < 1) ||
+        !(optimizer.beta2 >= 0 && optimizer.beta2 < 1) ||
+        !std::isfinite(optimizer.eps) || optimizer.eps <= 0 ||
+        !std::isfinite(optimizer.weight_decay) || optimizer.weight_decay < 0)
+        throw std::runtime_error("Invalid clipping norm or Adam settings");
+    const float norm = qwen_gradient_norm(optimizer, grads, loss_scale, stream);
     const float multiplier = std::min(1.0f, max_norm / (norm + 1e-6f)) / loss_scale;
     optimizer.step(&grads, stream, multiplier);
     CUDA_CHECK(cudaGetLastError());

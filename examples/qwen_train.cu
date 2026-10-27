@@ -54,6 +54,18 @@ class Trainer {
         peak_used = std::max(peak_used, total - available);
     }
 
+    std::vector<float> group_advantages(const Tokens& input, const Tokens& output,
+                                       const std::vector<float>& rewards, int G) const {
+        check_tokens(input);
+        check_tokens(output);
+        if (G < 2 || rewards.size() != input.size() || output.size() != input.size() || rewards.size() % G)
+            throw std::runtime_error("Expected grouped rewards for each completion");
+        for (size_t i = 0; i < rewards.size(); ++i)
+            if (!std::isfinite(rewards[i]) || input[i] != input[(i/G)*G])
+                throw std::runtime_error("Each reward group must share one prompt");
+        return grpo::group_advantages_cpu(rewards, rewards.size()/G, G, grpo::AdvantageMode::centered);
+    }
+
     json score(const Tokens& input, const Tokens& output, const std::vector<float>& advantages = {}) {
         check_tokens(input);
         check_tokens(output);
@@ -238,16 +250,31 @@ public:
         if (command == "generate") result = generate(request);
         else if (command == "score")
             result = score(request.at("prompts").get<Tokens>(), request.at("completions").get<Tokens>());
-        else if (command == "update") {
+        else if (command == "benchmark") {
+            const auto input = request.at("prompts").get<Tokens>();
+            const auto output = request.at("completions").get<Tokens>();
+            const auto rewards = request.at("rewards").get<std::vector<float>>();
+            const auto advantages = group_advantages(input, output, rewards, request.at("group_size"));
+            const int warmup = request.at("warmup"), iterations = request.at("iterations");
+            if (warmup < 1 || warmup > 10 || iterations < 1 || iterations > 30)
+                throw std::runtime_error("Use 1–10 warmups and 1–30 benchmark iterations");
+            json samples = json::array();
+            for (int i = 0; i < warmup + iterations; ++i) {
+                auto clock = Clock::now();
+                result = score(input, output, advantages);
+                const double elapsed = seconds(clock);
+                if (i >= warmup) samples.push_back({{"seconds", elapsed},
+                    {"stage_seconds", result.at("stage_seconds")}, {"loss", result.at("loss")}});
+            }
+            result["samples"] = samples;
+            result["gradient_norm"] = grpo::qwen_gradient_norm(*optimizer, *grads, loss_scale);
+            result["optimizer_step"] = optimizer->get_step();
+        } else if (command == "update") {
             const auto rewards = request.at("rewards").get<std::vector<float>>();
             const int G = request.at("group_size");
-            if (!pending_update || G < 2 || rewards.size() != completions.size() || rewards.size() % G)
+            if (!pending_update)
                 throw std::runtime_error("Update needs grouped rewards from a temperature-1 generation");
-            for (size_t i = 0; i < rewards.size(); ++i) {
-                if (!std::isfinite(rewards[i]) || prompts[i] != prompts[(i/G)*G])
-                    throw std::runtime_error("Each reward group must share one prompt");
-            }
-            auto advantages = grpo::group_advantages_cpu(rewards, rewards.size()/G, G, grpo::AdvantageMode::centered);
+            const auto advantages = group_advantages(prompts, completions, rewards, G);
             result = score(prompts, completions, advantages);
             auto clock = Clock::now();
             result["gradient_norm"] = grpo::qwen_step(*optimizer, *grads, loss_scale);

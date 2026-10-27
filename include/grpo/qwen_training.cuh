@@ -4,6 +4,9 @@
 #include <filesystem>
 
 namespace grpo {
+float qwen_gradient_norm(AdamWOptimizer& optimizer, Qwen3Gradients& grads,
+                         float loss_scale, cudaStream_t stream = 0);
+
 float qwen_step(AdamWOptimizer& optimizer, Qwen3Gradients& grads,
                 float loss_scale, float max_norm = 1.0f, cudaStream_t stream = 0);
 
