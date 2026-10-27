@@ -262,6 +262,21 @@ index 9fadc9c..57f6e61 100644
  }
  
  void launch_embedding_backward(
+diff --git a/src/kernels/sampler.cu b/src/kernels/sampler.cu
+index 208dea1..563caed 100644
+--- a/src/kernels/sampler.cu
++++ b/src/kernels/sampler.cu
+@@ -47,8 +47,8 @@ float gumbel_noise(unsigned long long seed, int tok, int idx)
+     s ^= s >> 30; s *= 0xbf58476d1ce4e5b9ULL;
+     s ^= s >> 27; s *= 0x94d049bb133111ebULL;
+     s ^= s >> 31;
+-    // Map to (0,1) — clamp away from 0 to avoid log(0)
+-    float u = fmaxf((float)(s >> 11) * (1.0f / (float)(1ULL << 53)), 1e-37f);
++    // Float rounding can reach 1; both endpoints make the logs singular.
++    float u = fminf(fmaxf((float)(s >> 11) * (1.0f / (float)(1ULL << 53)), 1e-37f), 0x1.fffffep-1f);
+     // Gumbel(0,1): -log(-log(u))  [fast GPU intrinsic __logf ≈ 4–5 cycles]
+     return -__logf(-__logf(u));
+ }
 diff --git a/src/kernels/weights.cpp b/src/kernels/weights.cpp
 index 8850844..1c24a9e 100644
 --- a/src/kernels/weights.cpp

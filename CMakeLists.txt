@@ -30,7 +30,7 @@ endif()
 
 option(GRPO_USE_CUDA "Build the CUDA kernels and benchmark" OFF)
 option(GRPO_BUILD_GPT2 "Build the optional llm.c GPT-2 example" OFF)
-option(GRPO_BUILD_QWEN "Build the Qwen3-0.6B CUDA checks" OFF)
+option(GRPO_BUILD_QWEN "Build the Qwen3-0.6B trainer and checks" OFF)
 option(GRPO_BUILD_DISTRIBUTED "Build the optional two-GPU GPT-2 example" OFF)
 
 if(GRPO_BUILD_GPT2 AND NOT GRPO_USE_CUDA)

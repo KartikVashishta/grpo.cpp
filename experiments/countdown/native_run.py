@@ -22,7 +22,7 @@ for directory in ("cmake", "include", "src", "tests", "bench", "examples"):
                                 ignore=["__pycache__", ".DS_Store"], copy=True)
 image = (image.run_commands(
     "cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGRPO_USE_CUDA=ON -DGRPO_BUILD_QWEN=ON -DCMAKE_CUDA_ARCHITECTURES=90",
-    "cmake --build /build --target qwen_probe test_qwen_embedding test_qwen_optimizer bench_grpo_loss_cuda -j2")
+    "cmake --build /build --target qwen_train qwen_probe test_qwen_sampler test_qwen_embedding test_qwen_optimizer bench_grpo_loss_cuda -j2")
     .add_local_dir(HERE, "/experiment", ignore=["__pycache__", ".DS_Store"]))
 
 
@@ -37,6 +37,8 @@ def build_check():
     assert Path("/build/qwen_probe").is_file()
     assert Path("/build/test_qwen_embedding").is_file()
     assert Path("/build/test_qwen_optimizer").is_file()
+    assert Path("/build/qwen_train").is_file()
+    assert Path("/build/test_qwen_sampler").is_file()
     config = json.loads(Path("/experiment/config.json").read_text())
     inputs = fixture(AutoTokenizer.from_pretrained(config["model"], revision=config["model_revision"]))
     return {"nvcc": subprocess.check_output(["/usr/local/cuda/bin/nvcc", "--version"], text=True),
@@ -51,8 +53,10 @@ def execute(run_id, provenance, mode):
     sys.path.insert(0, "/experiment")
     if mode == "parity":
         from parity import run
-    else:
+    elif mode == "update":
         from update_check import run
+    else:
+        from generation_check import run
     output = Path("/artifacts") / run_id
     output.mkdir()
     started = time.perf_counter()
@@ -79,8 +83,8 @@ def execute(run_id, provenance, mode):
 
 @app.local_entrypoint()
 def main(run_id: str = "", build_only: bool = False, mode: str = "parity"):
-    if mode not in ("parity", "update"):
-        raise ValueError("Use parity or update")
+    if mode not in ("parity", "update", "generation"):
+        raise ValueError("Use parity, update or generation")
     if build_only:
         print(build_check.remote())
         return

@@ -37,9 +37,10 @@ tiny gradients, zero-gradient momentum and nonfinite rejection pass separately.
 The run took 86.4 seconds, about $0.10. The model-only checkpoint is in the Modal
 volume at `native-update-01/final`; optimizer state is not saved.
 
-Next: generate full responses with the same model, connect rewards and the GRPO
-loss, then run a short native learning check. Use explicit KV limits and keep
-EOS, prompt masks and generated-prefix scoring consistent with the pilot.
+The generation and update loop is connected. Before training, check cached
+generation against full-prefix scores, EOS handling, a complete update and
+checkpoint reload. A sampler value could round to 1 and produce infinite noise;
+the fix and a fixed-seed regression are ready for the GPU check.
 
 Native learning, the 24 GB run, final testing and the repeat seed remain open.
 This chat owns integration. Budget: $5 pilot, $15 native comparison, $5 repeat,
