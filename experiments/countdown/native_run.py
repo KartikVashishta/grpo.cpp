@@ -59,7 +59,7 @@ def build_check():
 @app.function(image=image, gpu="H100", cpu=(2, 2), memory=(16384, 16384),
               timeout=1200, retries=0, max_containers=1, scaledown_window=2,
               volumes={"/artifacts": volume})
-def execute(run_id, provenance, mode, steps, gpu, reference_run):
+def execute(run_id, provenance, mode, steps, gpu, reference_run, test_runs):
     import sys
     sys.path.insert(0, "/experiment")
     if mode == "parity":
@@ -70,6 +70,8 @@ def execute(run_id, provenance, mode, steps, gpu, reference_run):
         from generation_check import run
     elif mode == "benchmark":
         from benchmark import run
+    elif mode == "test":
+        from final_test import run
     else:
         from native_train import run
     output = Path("/artifacts") / run_id
@@ -79,6 +81,8 @@ def execute(run_id, provenance, mode, steps, gpu, reference_run):
         if mode == "train":
             run(output, provenance, steps, reference_run, RATES[gpu],
                 max_seconds=900 if gpu == "H100" else 3000)
+        elif mode == "test":
+            run(output, provenance, test_runs)
         else:
             run(output, provenance)
     except Exception as error:
@@ -103,9 +107,9 @@ def execute(run_id, provenance, mode, steps, gpu, reference_run):
 
 @app.local_entrypoint()
 def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps: int = 64,
-         gpu: str = "H100", reference_run: str = "reference-h100-01"):
-    if mode not in ("parity", "update", "generation", "benchmark", "train") or not 1 <= steps <= 64:
-        raise ValueError("Use parity, update, generation, benchmark or train, with 1 to 64 steps")
+         gpu: str = "H100", reference_run: str = "reference-h100-01", test_runs: str = ""):
+    if mode not in ("parity", "update", "generation", "benchmark", "train", "test") or not 1 <= steps <= 64:
+        raise ValueError("Use parity, update, generation, benchmark, train or test, with 1 to 64 steps")
     if gpu not in RATES:
         raise ValueError("Use L4, A10 or H100")
     if build_only:
@@ -121,6 +125,15 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps
         sys.path.insert(0, str(HERE))
         from native_train import training_data
         training_data(HERE, DATA, steps, reference_run)
+    selected = test_runs.split(",") if test_runs else []
+    if mode == "test":
+        import sys
+        sys.path.insert(0, str(HERE))
+        from final_test import checkpoints
+        if not selected or any(not name or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in name)
+                               for name in selected):
+            raise ValueError("Provide comma-separated checkpoint run IDs with --test-runs")
+        checkpoints(HERE, selected)
     files = [ROOT / "CMakeLists.txt"]
     for directory in ("cmake", "include", "src", "tests", "bench", "examples", "experiments/countdown"):
         files.extend(p for p in (ROOT / directory).rglob("*")
@@ -131,7 +144,7 @@ def main(run_id: str = "", build_only: bool = False, mode: str = "parity", steps
         "files_sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)},
     }
     function = execute.with_options(gpu=gpu, timeout=1200 if gpu == "H100" else 3600)
-    result = function.remote(run_id, provenance, mode, steps, gpu, reference_run)
+    result = function.remote(run_id, provenance, mode, steps, gpu, reference_run, selected)
     output.mkdir(parents=True)
     for name, content in result.items():
         (output / name).write_text(content)
