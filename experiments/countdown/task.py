@@ -93,6 +93,10 @@ def messages(puzzle):
         {"role": "system", "content":
          "Solve the arithmetic puzzle. Use every given number exactly once. "
          "Use only +, -, *, / and parentheses. Output one expression and nothing else."},
+        {"role": "user", "content": "Numbers: 3, 7, 8\nTarget: 45"},
+        {"role": "assistant", "content": "(8 + 7) * 3"},
+        {"role": "user", "content": "Numbers: 2, 4, 16\nTarget: 2"},
+        {"role": "assistant", "content": "16 / 4 - 2"},
         {"role": "user", "content":
          f"Numbers: {', '.join(map(str, puzzle['nums']))}\nTarget: {puzzle['target']}"},
     ]

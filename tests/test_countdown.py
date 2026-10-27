@@ -1,7 +1,9 @@
 import itertools
+import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/countdown"))
 from task import make_splits, puzzle_id, verify
@@ -58,6 +60,14 @@ class CountdownTest(unittest.TestCase):
         self.assertEqual(stats["prompts"], 3)
         self.assertEqual(stats["accuracy"], 9 / 24)
         self.assertEqual(stats["generated_tokens"], 240)
+
+    @unittest.skipUnless(importlib.util.find_spec("modal"), "requires the Modal Python environment")
+    def test_runner_imports_at_the_remote_path(self):
+        path = Path(__file__).resolve().parents[1] / "experiments/countdown/modal_run.py"
+        remote = "/root/modal_run.py"
+        with patch("modal.is_local", return_value=False):
+            exec(compile(path.read_text(), remote, "exec"),
+                 {"__name__": "modal_run", "__file__": remote})
 
 
 if __name__ == "__main__":
