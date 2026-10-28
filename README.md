@@ -2,26 +2,19 @@
 
 I wanted to see a GRPO update without a Python trainer around it.
 
-The small example in this repo is a 24-logit policy that can be followed from
-sampling to SGD. The same loss also plugs into `llm.c` and trains GPT-2 124M.
-On CUDA, the model-facing path fuses selected-token log-softmax, GRPO, and
-logits backward so the intermediate arrays never need to exist.
+The toy example is a 24-logit policy you can follow from sampling to SGD.
+There are also GPT-2 124M and Qwen3-0.6B examples. Qwen trains on three-number
+Countdown: generate an expression, check the arithmetic, update the model.
 
-```text
-rollouts -> rewards -> group advantages -> clipped loss -> dlogits -> update
-```
+On a 24 GB A10, two native runs took 143 and 131 seconds, about five cents of
+estimated compute each. They scored 198/512 and 179/512 on the held-out test.
+TRL took 439 and 392 seconds and scored 183/512 and 199/512. Native was faster
+in both seeds, but the scores went either way. Costs exclude builds, startup,
+storage, network and the separate final test.
 
-The [Qwen3-0.6B Countdown experiment](experiments/countdown/README.md) now trains
-on full responses. On one 24 GB A10, two native runs took 143 and 131 seconds,
-used about five cents of estimated compute each, and scored 198/512 and 179/512
-on the frozen final test. TRL took 439 and 392 seconds and scored 183/512 and
-199/512. Native was faster in both seeds; the test-score advantage changed sides.
-Costs exclude image builds, pre-entry startup and final testing.
-
-On H100, the same recorded token batch takes 0.440 seconds through native forward,
-loss and backward, versus 1.965 seconds through TRL. This includes TRL's tiled
-head; compute precision and bookkeeping differ. The experiment has the raw
-measurements, ordinary model checkpoints and an answer viewer.
+The [Countdown experiment](experiments/countdown/README.md) has the run
+commands, checkpoints, raw results and an answer viewer. Qwen's model and
+kernels come from a pinned revision of [RL.cu](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6).
 
 ![Countdown learning on A10](experiments/countdown/learning-a10.svg)
 
@@ -80,8 +73,7 @@ For a selected token, the policy ratio is
 The CPU implementation returns both the loss statistics and `dL/dlogp_new`.
 The logits API applies the log-softmax Jacobian as well, producing the buffer
 that a model backward pass expects. Sequence mean is the default reduction;
-token and length-weighted reductions are kept explicit rather than hidden in
-the trainer.
+token and length-weighted reductions are also available.
 
 ## CUDA result
 
@@ -102,9 +94,9 @@ The benchmark also contains a deliberately simple per-token atomic kernel and
 a block-reduced version. Every CUDA path is checked against the CPU result
 before it is timed.
 
-## Model checks
+## GPT-2 checks
 
-The single-GPU example uses eight short prompts, exact one-token rewards, a
+The GPT-2 example uses eight short prompts, exact one-token rewards, a
 fixed initial reference, and four policy passes per rollout batch. On an A100
 PCIe 40 GB, one four-update run moved mean target probability from `0.034258`
 to `0.338416`. A one-update run under Compute Sanitizer reported no errors.
@@ -124,13 +116,8 @@ gathered before the advantages are computed; parameter gradients are averaged
 after every policy pass. On two A100 PCIe 40 GB cards, both replicas moved from
 `0.0597304` to `0.666268`, and their full parameter hashes matched afterward.
 
-The response-length and variance-guided rollout studies are kept in
-[`experiments/`](experiments/README.md). They are useful questions, but they are
-not needed to understand the main training path.
-
-This is a small trainer and loss implementation, not a replacement for a
-production RL framework. Sampling is intentionally ordinary and still returns
-to the CPU in the GPT-2 example.
+The GPT-2 examples sample on the CPU. The response-length and variance-guided
+rollout experiments are in [`experiments/`](experiments/README.md).
 
 ## References
 

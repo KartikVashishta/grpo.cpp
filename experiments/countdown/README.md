@@ -1,88 +1,11 @@
 # Countdown
 
-Qwen3-0.6B learns short arithmetic expressions from exact rewards. The model,
-data splits, verifier and sampling settings are fixed. Each run finishes 64
-updates, and prompt order matches between implementations within each seed.
+Qwen3-0.6B learns to solve three-number Countdown. The training runs below start
+from the same model and finish 64 updates. The data splits, verifier and sampling
+settings are fixed; prompt order matches within each seed.
 Costs below are rate-based estimates for complete training functions, including
 saves and reload checks. Image builds, pre-entry startup, storage, network and
 the separate final-test job are excluded.
-
-## 24 GB A10
-
-| Seed | Native development answers | TRL development answers | Native time / cost | TRL time / cost |
-| --- | ---: | ---: | ---: | ---: |
-| 42 | 7/256 → 98/256 | 8/256 → 90/256 | 143 s / $0.053 | 439 s / $0.161 |
-| 43 | 6/256 → 84/256 | 5/256 → 101/256 | 131 s / $0.048 | 392 s / $0.144 |
-
-Both native runs cost about five cents. Native generated 23,537 and 26,094
-training tokens; TRL generated 26,501 and 27,195. Shorter answers account for
-some of the total-work difference. The fixed-token comparison below uses H100.
-
-![Development accuracy and completion length on A10](learning-a10.svg)
-
-![Time spent on A10](runtime-a10.svg)
-
-Final testing uses 512 separate puzzles, one sampled answer each. Every model
-is the last checkpoint at update 64, with no test-driven selection or tuning.
-
-| Seed | Native final test, before → after | TRL final test, before → after |
-| --- | ---: | ---: |
-| 42 | 26/512 → 198/512 | 14/512 → 183/512 |
-| 43 | 14/512 → 179/512 | 19/512 → 199/512 |
-
-Native is faster in both seeds; neither implementation has a consistent test
-advantage on A10. Two seeds do not establish equal learning quality. Native
-sampled device usage stayed around 10.27 GiB. TRL's allocator reserved at most
-11.99 GiB. These measure different things; both full runs fit the 24 GB card.
-Modal supplied an A10G for TRL seed 42 and A10s for the other runs.
-
-## H100
-
-These runs start from the same checkpoint and finish 64 updates on one H100.
-Prompt order is matched within each seed.
-
-| Run | Development answers, before → after | Training tokens | Function time | Estimated compute |
-| --- | ---: | ---: | ---: | ---: |
-| Native, seed 42 | 15/256 → 87/256 | 26,305 | 77 seconds | $0.09 |
-| TRL, seed 42 | 10/256 → 107/256 | 26,709 | 398 seconds | $0.46 |
-| Native, seed 43 | 10/256 → 113/256 | 22,992 | 89 seconds | $0.10 |
-| TRL, seed 43 | 9/256 → 98/256 | 26,318 | 242 seconds | $0.28 |
-
-Native is faster in both runs. Development scores vary between seeds, and the
-implementations use different sampling RNGs and compute precision. Cost excludes
-image builds, pre-entry startup, storage and network. Final testing is separate.
-
-![Development accuracy and completion length](learning.svg)
-
-![Time spent in both runs](runtime.svg)
-
-The final test uses 512 separate puzzles and the last checkpoint from each run.
-That checkpoint choice and the training recipe were fixed before reading test
-results. Each puzzle gets one sampled answer, using the development sampling settings.
-
-| Run | Final-test answers, before → after | Gains | Regressions |
-| --- | ---: | ---: | ---: |
-| Native, seed 42 | 25/512 → 174/512 | 163 | 14 |
-| TRL, seed 42 | 20/512 → 214/512 | 205 | 11 |
-| Native, seed 43 | 12/512 → 196/512 | 187 | 3 |
-| TRL, seed 43 | 15/512 → 202/512 | 195 | 8 |
-
-TRL has higher final-test scores in both seeds. Gains and regressions compare
-sampled answers; they are not deterministic per-puzzle capability labels.
-
-For a fixed-work check, both implementations replay the same 32 completions,
-including their original token IDs, masks and centered rewards. Weights stay
-fixed. Across three alternating rounds and 15 timed batches each, median
-forward/loss/backward time is 0.440 seconds native and 1.965 seconds TRL.
-Generation, clipping and optimizer steps are outside this measurement.
-
-![Timing the same recorded batch](fixed-work.svg)
-
-TRL keeps its tiled head, entropy and clipping metrics. It computes one extra
-backbone position per row; native includes host copies and stage synchronization.
-Native uses FP16 compute, TRL BF16 autocast with FP32 parameters. The 4.92%
-gradient-norm difference is a scaling check, not full-gradient parity. These
-measurements do not establish equal learning quality.
 
 ```text
 Numbers: 3, 7, 8
@@ -96,6 +19,90 @@ reach the target using `+`, `-`, `*`, `/` and parentheses. The verifier uses
 exact fractions. Extra prose, decimals, unary signs, extra numbers and code
 are rejected. A valid expression at the token cap can earn reward; the report
 records whether it ended with EOS separately. There is no formatting reward.
+
+## 24 GB A10
+
+| Seed | Native development answers | TRL development answers | Native time / cost | TRL time / cost |
+| --- | ---: | ---: | ---: | ---: |
+| 42 | 7/256 → 98/256 | 8/256 → 90/256 | 143 s / $0.053 | 439 s / $0.161 |
+| 43 | 6/256 → 84/256 | 5/256 → 101/256 | 131 s / $0.048 | 392 s / $0.144 |
+
+Both native runs cost about five cents. Native generated 23,537 and 26,094
+training tokens; TRL generated 26,501 and 27,195. Shorter answers account for
+some of the total-work difference. The fixed-token comparison below uses H100.
+
+![Development accuracy against cost on A10](learning-a10.svg)
+
+<details>
+<summary>Timing and completion length</summary>
+
+![Time spent on A10](runtime-a10.svg)
+
+![Completion length on A10](length-a10.svg)
+
+</details>
+
+Final testing uses 512 separate puzzles, one sampled answer each. Every model
+is the last checkpoint at update 64, with no test-driven selection or tuning.
+
+| Seed | Native final test, before → after | TRL final test, before → after |
+| --- | ---: | ---: |
+| 42 | 26/512 → 198/512 | 14/512 → 183/512 |
+| 43 | 14/512 → 179/512 | 19/512 → 199/512 |
+
+Native was faster in both seeds, but the scores went either way. Two seeds
+are too few to claim equal learning quality. Native sampled device usage was
+about 10.27 GiB; TRL's peak reserved memory was 11.99 GiB. These are different
+memory measures, though both trainers fit the 24 GB card.
+Modal supplied an A10G for TRL seed 42 and A10s for the other runs.
+
+<details>
+<summary>H100 comparison</summary>
+
+| Run | Development answers, before → after | Training tokens | Function time | Estimated compute |
+| --- | ---: | ---: | ---: | ---: |
+| Native, seed 42 | 15/256 → 87/256 | 26,305 | 77 seconds | $0.09 |
+| TRL, seed 42 | 10/256 → 107/256 | 26,709 | 398 seconds | $0.46 |
+| Native, seed 43 | 10/256 → 113/256 | 22,992 | 89 seconds | $0.10 |
+| TRL, seed 43 | 9/256 → 98/256 | 26,318 | 242 seconds | $0.28 |
+
+Native was faster in both runs. Sampled device usage reached 10.60 GiB;
+TRL reserved at most 12.83 GiB. Native and TRL use different sampling RNGs
+and compute precision.
+
+![Development accuracy against cost on H100](learning.svg)
+
+![Time spent on H100](runtime.svg)
+
+![Completion length on H100](length.svg)
+
+The H100 final test uses the same 512 puzzles and sampling settings.
+
+| Run | Final-test answers, before → after | Gains | Regressions |
+| --- | ---: | ---: | ---: |
+| Native, seed 42 | 25/512 → 174/512 | 163 | 14 |
+| TRL, seed 42 | 20/512 → 214/512 | 205 | 11 |
+| Native, seed 43 | 12/512 → 196/512 | 187 | 3 |
+| TRL, seed 43 | 15/512 → 202/512 | 195 | 8 |
+
+TRL scored higher in both seeds. Gains and regressions count puzzles whose
+sampled answer changed from wrong to right or right to wrong.
+
+For a fixed-work check, both implementations replay the same 32 completions,
+including their original token IDs, masks and centered rewards. Weights stay
+fixed. Across three alternating rounds and 15 timed batches each, median
+forward/loss/backward time is 0.440 seconds native and 1.965 seconds TRL.
+Generation, clipping and optimizer steps are outside this measurement.
+
+![Timing the same recorded batch](fixed-work.svg)
+
+TRL keeps its tiled head, entropy and clipping metrics. It computes one extra
+backbone position per row; native includes host copies and stage synchronization.
+Native uses FP16 compute, TRL BF16 autocast with FP32 parameters. The 4.92%
+gradient-norm difference checks scaling only. The full gradient comparison is
+below.
+
+</details>
 
 ## Run it
 
@@ -117,47 +124,56 @@ modal run experiments/countdown/modal_run.py --run-id calibration-01 --gpu A10
 modal run experiments/countdown/modal_run.py --run-id reference-01 --mode train --steps 64 --gpu A10
 ```
 
-The reference runner defaults to L4; the native runner defaults to H100.
-Both accept `--gpu L4`, `--gpu A10` or `--gpu H100`, with two CPU cores and
-16 GiB RAM. L4 and A10 runs have no retry, a 60-minute
-timeout and a training stop check after 50 minutes. One hour at the recorded
-rates is about $1.02 on L4 or $1.32 on A10, before startup, storage,
-network and image-build costs. Keep the first calibration/pilot stage within
-$5 and inspect each result before starting another job. This is a per-job
-bound; the script does not enforce an account-wide spending limit.
+Both runners accept L4, A10 and H100, with two CPU cores, 16 GiB RAM and no
+retries. The reference defaults to L4; native defaults to H100.
 
-If L4 capacity is unavailable, `--gpu H100` uses a 20-minute hard timeout and
-checks for a training stop after 15 minutes. Its requested resources cost about
-$1.39 for the full 20 minutes, with the same exclusions. An H100 run does not
-prove L4 fit; never compare its timings directly with an L4 result.
+| GPU | Training stop check | Hard timeout | Compute at the timeout |
+| --- | ---: | ---: | ---: |
+| L4 | 50 min | 60 min | $1.02 |
+| A10 | 50 min | 60 min | $1.32 |
+| H100 | 15 min | 20 min | $1.39 |
 
-`config.json` pins the model, data and recipe. `data_manifest.json` pins the
-actual split bytes. `requirements.lock` pins the resolved Linux/Python 3.11
-environment, including transitive dependencies. The source has 490,364 rows and 200,402 distinct
-three-number puzzles. We hash each sorted input multiset plus target, sort
-those hashes using a fixed seed, then take 128 calibration, 256 development,
-512 final-test and 8,192 training puzzles. Source row order and permutations
-cannot cross splits. Training does not read final-test puzzle contents.
+These are per-job estimates at the recorded rates, with the exclusions above.
+The scripts do not enforce an account-wide spending limit.
 
-The prompt includes two solved examples, neither present in the data splits.
+The model and recipe are in `config.json`, split hashes in
+`data_manifest.json`, and Python 3.11 dependencies in `requirements.lock`. The
+source has 490,364 rows and 200,402 distinct three-number puzzles. We hash
+each sorted input multiset plus target, sort those hashes using a fixed seed,
+then take 128 calibration, 256 development, 512 final-test and 8,192 training
+puzzles. Source row order and permutations cannot cross splits. Training does
+not read final-test puzzle contents.
+
+Calibration started at 0/1,024 correct answers. Adding two format examples
+gave 36/1,024 and 29 groups with mixed rewards. Both attempts are saved; the
+examples are absent from all four data splits.
+
 The runner uses full-support sampling at temperature 1, eight completions per
 prompt and a 64-token cap. Each optimizer update sees four prompts, with two
 completions per training microbatch. Rewards are centered within each group,
 without standard-deviation scaling. Sequence-mean GRPO, one policy pass and
-zero KL make the first update easy to compare with the existing C++ loss.
+zero KL are used throughout.
 
 The reference uses FP32 parameters and AdamW state, BF16 autocast, gradient
 checkpointing and TRL 1.16's tiled output head. Generation uses Transformers
 (`use_vllm=False`). Native uses FP16 matrix weights and gradients, FP32 norms,
 and FP32 master weights and Adam state.
 
+The C++ process owns generation, gradients and Adam. Python supplies tokenized
+puzzles and rewards through `native.py`; `native_train.py` uses the same exact
+verifier as the pilot.
+
+To change the task, start with `messages()` and `verify()` in `task.py`.
+The model process accepts token IDs for generation and one reward per response
+for the update. Prompt construction and reward calculation need no CUDA changes.
+
 ## Read the result
 
 Small measurement files return to `runs/countdown/<run-id>/`. Model checkpoints
 stay under the same ID in the `grpo-countdown` Modal volume. Training saves
-ordinary HF model checkpoints every 16 updates and checks a final reload by
-comparing sampled token IDs on 32 development prompts. These model-only
-checkpoints do not contain optimizer state for an exact training resume.
+HF model checkpoints every 16 updates. A reload check compares sampled token
+IDs on 32 development prompts. Checkpoints contain model weights and tokenizer
+files; training restarts with fresh optimizer state.
 
 - `metadata.json`: recipe, source hashes, dependency versions and data identity.
 - `answers.jsonl`: every calibration/development answer and exact verdict.
@@ -166,12 +182,10 @@ checkpoints do not contain optimizer state for an exact training resume.
 - `summary.json`: completion status and synchronized stage timings.
 - `container.json`: function runtime and rate-based compute estimate.
 
-Timing uses synchronized wall-clock intervals. Generation, reward, model
-scoring, loss, optimizer and evaluation have separate intervals. The remaining
-training-step time includes backward and batch preparation; it is not a pure
-kernel measurement. Synchronization adds overhead. Estimated dollars are
-computed from elapsed time and public rates, not claimed as invoiced spend.
-Checkpoint reload and other unclassified overhead remain in total elapsed time.
+Timings use synchronized wall-clock intervals for generation, reward, scoring,
+loss, optimizer and evaluation. The remainder of each training step includes
+backward and batch preparation. Total time also includes loading, saving,
+reload checks and writing results. Costs use elapsed time and public rates.
 
 Generate the plots and a standalone answer viewer from saved measurements:
 
@@ -182,9 +196,9 @@ uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
 ```
 
 You can pass just the calibration directory before a training run exists.
-The report saves SVG and PNG figures beside `report.html`. Learning curves
-show sampled development pass@1; their intervals describe uncertainty across
-puzzles, not variation across independent training runs.
+The report saves SVG and PNG figures beside `report.html`. Each line shows
+one seed's sampled development pass@1. Timing, completion length and measurement
+notes are under “Training details” in the report.
 
 The measurements and raw answers are in `results.tar.gz`.
 To redraw these figures without a GPU:
@@ -215,13 +229,20 @@ The final-test command checks the run metadata, split hash and final weight
 files, then saves every answer. It never selects an earlier checkpoint.
 Pass `--test runs/countdown/test-01` to the report to browse those answers.
 
-Final weights are in the `grpo-countdown` Modal volume at `<run-id>/final`.
-Reload checks reproduced sampled token IDs on 32 development puzzles.
-Both calibration attempts are retained: the original
-prompt scored 0/1,024; two format examples gave 36/1,024 and 29 mixed groups.
-The examples are absent from all four data splits.
+Native saves at updates 16, 32, 48 and the end; TRL also writes a periodic
+checkpoint at 64 before its final save. Total times include that work.
 
-## Native model check
+Download the trained native checkpoint:
+
+```bash
+mkdir -p runs/countdown/native-a10-01
+modal volume get grpo-countdown native-a10-01/final runs/countdown/native-a10-01
+```
+
+The model and tokenizer files land in `runs/countdown/native-a10-01/final/`.
+
+<details>
+<summary>Model checks</summary>
 
 [`RL.cu` at `77ecd83`](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6)
 provides the MIT-licensed model and kernels. CMake fetches that revision; a
@@ -229,26 +250,23 @@ patch checks weight shapes, dtypes and file bounds, handles FP32 weights,
 and sums repeated-token embedding gradients in FP32. The upstream trainer is unused.
 
 ```bash
-modal run experiments/countdown/native_run.py --build-only
 modal run experiments/countdown/native_run.py --run-id native-parity-01
 ```
 
-The first command compiles on CPU. The second compares two padded Countdown
-sequences with PyTorch on an H100: selected log probabilities, every parameter
-gradient, loss scaling, microbatch accumulation, changed padding and FP32
-weight loading. It includes EOS and crosses attention and vocabulary-head
-chunk boundaries. CUDA memcheck runs on the scaled case. Fixed tolerances
-live in `parity.py`; a failed comparison exits nonzero after saving results.
-Large gradient dumps are temporary. Measurements stay in `runs/countdown/`.
-The embedding reduction scans matching rows in order. This keeps short
-microbatches reproducible without a full FP32 vocabulary-gradient buffer;
-large batches will need a segmented reduction.
+This compares two padded Countdown sequences with PyTorch on an H100: selected
+log probabilities, every parameter gradient, loss scaling, microbatch
+accumulation, changed padding and FP32 weight loading. It includes EOS and
+crosses attention and vocabulary-head chunk boundaries. CUDA memcheck runs on
+the scaled case. Fixed tolerances live in `parity.py`; a failed comparison
+exits nonzero after saving results. The embedding reduction scans matching
+rows in order. This keeps short microbatches reproducible without a full FP32
+vocabulary-gradient buffer.
 
 `native-parity-02` passes the native checks on the fixed two-sequence fixture. Its
 relative gradient error against FP32 PyTorch is 0.56% with scaling and 1.55%
 without. The first run failed the repeat check; summing repeated embedding
 rows in FP32 brought the difference below the original tolerance. Both runs
-are in `results.tar.gz` and cost about $0.29 in estimated function time.
+are in `results.tar.gz`.
 
 ![Native gradient checks](gradients.svg)
 
@@ -266,24 +284,10 @@ The optimizer/checkpoint check is a separate run:
 modal run experiments/countdown/native_run.py --mode update --run-id native-update-01
 ```
 
-It compares clipped Adam updates with PyTorch using identical gradients, then
-checks a native roundtrip and a Transformers reload. The saved checkpoint has
-FP32 master weights and tokenizer files. It restarts with fresh optimizer state;
-it does not resume the same training trajectory.
-
-`native-update-01` passed three updates over all 310 parameter tensors. The
-largest absolute weight difference from PyTorch was 1.2e-7; native and
-Transformers reloads preserved all saved weights. Its 86.4-second function cost
-about $0.10. The measurements are in `results.tar.gz`. The checkpoint is about
-2.4 GB and stays in the Modal volume:
-
-```bash
-mkdir -p runs/countdown/native-update-01
-modal volume get grpo-countdown native-update-01/final runs/countdown/native-update-01
-```
-
-This checkpoint tests the update and file format. It is not a learned Countdown
-result.
+This compares clipped Adam updates with PyTorch using identical gradients,
+then checks a native roundtrip and a Transformers reload. `native-update-01`
+passed three updates over all 310 parameter tensors. The largest absolute
+weight difference was 1.2e-7; both reloads preserved all saved weights.
 
 The generation check exercises the KV cache, EOS, full-prefix scoring, one
 controlled-reward update, checkpoint reload and memcheck:
@@ -300,33 +304,7 @@ rounded to 1 and produced infinite noise. Earlier failed runs are retained.
 The same generation, update, reload and memcheck checks also passed on L4 and
 A10. Full learning runs here use A10 and H100.
 
-The C++ process owns generation, gradients and Adam. Python supplies tokenized
-puzzles and rewards through `native.py`; `native_train.py` uses the same exact
-verifier as the pilot. Checkpoints and raw answers stay in the Modal volume;
-small results are copied to `runs/countdown/`.
-
-To change the task, start with `messages()` and `verify()` in `task.py`.
-The model process accepts token IDs for generation and one reward per response
-for the update. Prompt construction and reward calculation need no CUDA changes.
-
-`native-h100-01` (`12d5c57`) went from 15 to 87 correct development answers:
-80 puzzles improved and eight regressed. The score dipped at update 32. Of
-256 training groups, 73 had mixed rewards. Native checkpoint reload reproduced
-all sampled tokens on 32 development puzzles.
-
-Native device usage reached 10.60 GiB at the sampled stage boundaries. TRL's
-12.83 GiB figure is its allocator's peak reserved memory; these are different
-measurements. Native saves at updates 16, 32, 48 and the end; TRL also writes a
-periodic checkpoint at 64 before its final save. Total times include that work.
-
-Download the trained native checkpoint:
-
-```bash
-mkdir -p runs/countdown/native-a10-01
-modal volume get grpo-countdown native-a10-01/final runs/countdown/native-a10-01
-```
-
-The model and tokenizer files land in `runs/countdown/native-a10-01/final/`.
+</details>
 
 Sources: [Qwen checkpoint](https://huggingface.co/Qwen/Qwen3-0.6B/tree/c1899de289a04d12100db370d81485cdf75e47ca),
 [Countdown data](https://huggingface.co/datasets/Jiayi-Pan/Countdown-Tasks-3to4/tree/408f70d177020686d34a56bba5952feb45aaaee4),

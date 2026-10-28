@@ -1,4 +1,3 @@
-// The whole toy policy lives here so there is no framework to mentally expand.
 #include "grpo/grpo_loss.hpp"
 
 #include <algorithm>

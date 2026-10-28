@@ -1,7 +1,7 @@
 # Experiments
 
-These are side questions that came up while writing the trainer. Neither is
-part of the shortest path through the repository.
+[Countdown](countdown/README.md) trains Qwen3-0.6B on arithmetic expressions.
+The two smaller experiments below look at response length and rollout allocation.
 
 ## Response length
 
@@ -51,5 +51,4 @@ rollouts—the same total used by uniform sampling. Three A100 runs gave:
 | 44 | 0.338991 | 0.393748 |
 | mean | 0.352468 | 0.347017 |
 
-There was no improvement on this tiny check. I kept the allocator because the
-equal-budget behavior is useful to inspect and the result is easy to rerun.
+VIGOR did not improve the mean score across these three runs.

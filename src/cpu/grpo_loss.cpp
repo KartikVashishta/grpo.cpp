@@ -7,7 +7,6 @@
 
 namespace grpo {
 
-    // helper procedure to help us inspect the size differences if any
     static void expect_size(const char* name, size_t got, size_t want){
         if(got!=want)
             throw std::runtime_error(std::string(name) + " has size " + std::to_string(got) + ", expected " +std::to_string(want));
