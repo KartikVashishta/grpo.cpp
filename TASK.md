@@ -8,7 +8,11 @@ The 26 GPU runs used about $2.55 of estimated compute against the $30 budget,
 excluding builds, startup, storage and network. All jobs stopped on 28 October
 2026. Raw answers and measurements are in `experiments/countdown/results.tar.gz`.
 
-Release pass: publish the recorded before/after viewer and seed-42 checkpoint.
+The [viewer](https://kartikvashishta.github.io/grpo.cpp/) and
+[checkpoint with a 28-second replay](https://github.com/KartikVashishta/grpo.cpp/releases/tag/countdown-a10)
+are public. GitHub's file hashes match the local release assets; anonymous
+downloads work. The README, About section and social preview are updated.
 All 8,192 final-test verdicts rechecked. A clean clone and empty Modal environment
 passed the build, one A10 update and checkpoint reload; receipts are in the
-archive under `first-run-01`. The public links still need checking.
+archive under `first-run-01`. All eight local tests and the live viewer checks
+passed. The temporary Modal environment was deleted.
