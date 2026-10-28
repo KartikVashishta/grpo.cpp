@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="676.734375pt" height="217.205062pt" viewBox="0 0 676.734375 217.205062" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 217.205062 
+L 676.734375 217.205062 
+L 676.734375 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 100.734375 186.101344 
+L 669.534375 186.101344 
+L 669.534375 44.117344 
+L 100.734375 44.117344 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_1"/>
+     <g id="text_1">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: end; fill: #596579" x="90.734375" y="90.209669" transform="rotate(-0 90.734375 90.209669)">Before</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_2"/>
+     <g id="text_2">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: end; fill: #596579" x="90.734375" y="150.628392" transform="rotate(-0 90.734375 150.628392)">After 64 updates</text>
+     </g>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 100.734375 73.722518 
+L 521.779688 73.722518 
+L 521.779688 99.098382 
+L 100.734375 99.098382 
+z
+" clip-path="url(#p3a46b98683)" style="fill: #dce2ea"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 521.779688 73.722518 
+L 640.65 73.722518 
+L 640.65 99.098382 
+L 521.779688 99.098382 
+z
+" clip-path="url(#p3a46b98683)" style="fill: #8b99ae"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 640.65 73.722518 
+L 669.534375 73.722518 
+L 669.534375 99.098382 
+L 640.65 99.098382 
+z
+" clip-path="url(#p3a46b98683)" style="fill: #285cce"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 100.734375 134.141242 
+L 106.289063 134.141242 
+L 106.289063 159.517105 
+L 100.734375 159.517105 
+z
+" clip-path="url(#p3a46b98683)" style="fill: #dce2ea"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 106.289063 134.141242 
+L 449.56875 134.141242 
+L 449.56875 159.517105 
+L 106.289063 159.517105 
+z
+" clip-path="url(#p3a46b98683)" style="fill: #8b99ae"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 449.56875 134.141242 
+L 669.534375 134.141242 
+L 669.534375 159.517105 
+L 449.56875 159.517105 
+z
+" clip-path="url(#p3a46b98683)" style="fill: #285cce"/>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: middle; fill: #253247" x="311.257031" y="89.169825" transform="rotate(-0 311.257031 89.169825)">379</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: middle; fill: #ffffff" x="581.214844" y="89.169825" transform="rotate(-0 581.214844 89.169825)">107</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: middle; fill: #ffffff" x="655.092187" y="89.169825" transform="rotate(-0 655.092187 89.169825)">26</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: middle; fill: #253247" x="103.511719" y="171.943476" transform="rotate(-0 103.511719 171.943476)">5</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: middle; fill: #ffffff" x="277.928906" y="149.588549" transform="rotate(-0 277.928906 149.588549)">309</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: middle; fill: #ffffff" x="559.551563" y="149.588549" transform="rotate(-0 559.551563 149.588549)">198</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 17px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: start; fill: #253247" x="100.734375" y="20.117344" transform="rotate(-0 100.734375 20.117344)">What changed in the answers</text>
+   </g>
+   <g id="legend_1">
+    <g id="patch_9">
+     <path d="M 104.334375 37.517857 
+L 115.134375 37.517857 
+L 115.134375 31.217857 
+L 104.334375 31.217857 
+z
+" style="fill: #dce2ea"/>
+    </g>
+    <g id="text_10">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: start; fill: #253247" x="122.334375" y="37.517857" transform="rotate(-0 122.334375 37.517857)">Malformed / wrong numbers</text>
+    </g>
+    <g id="patch_10">
+     <path d="M 267.559219 37.517857 
+L 278.359219 37.517857 
+L 278.359219 31.217857 
+L 267.559219 31.217857 
+z
+" style="fill: #8b99ae"/>
+    </g>
+    <g id="text_11">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: start; fill: #253247" x="285.559219" y="37.517857" transform="rotate(-0 285.559219 37.517857)">Wrong value</text>
+    </g>
+    <g id="patch_11">
+     <path d="M 359.918906 37.517857 
+L 370.718906 37.517857 
+L 370.718906 31.217857 
+L 359.918906 31.217857 
+z
+" style="fill: #285cce"/>
+    </g>
+    <g id="text_12">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: start; fill: #253247" x="377.918906" y="37.517857" transform="rotate(-0 377.918906 37.517857)">Correct</text>
+    </g>
+   </g>
+  </g>
+  <g id="text_13">
+   <text style="font-size: 9px; font-family: 'DejaVu Sans', 'Arial', sans-serif; text-anchor: start; fill: #68758a" x="100.734375" y="208.133344" transform="rotate(-0 100.734375 208.133344)">512 held-out puzzles. grpo.cpp · seed 42. Qwen3-0.6B on A10.</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p3a46b98683">
+   <rect x="100.734375" y="44.117344" width="568.8" height="141.984"/>
+  </clipPath>
+ </defs>
+</svg>

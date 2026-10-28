@@ -1,22 +1,34 @@
 # grpo.cpp
 
-I wanted to see a GRPO update without a Python trainer around it.
+Qwen3-0.6B learns three-number Countdown in under 2½ minutes, for about five
+cents of estimated compute. Training runs in C++/CUDA. Every recorded answer
+is available to inspect.
 
-The toy example is a 24-logit policy you can follow from sampling to SGD.
-There are also GPT-2 124M and Qwen3-0.6B examples. Qwen trains on three-number
-Countdown: generate an expression, check the arithmetic, update the model.
+[Browse before and after](https://kartikvashishta.github.io/grpo.cpp/) ·
+[Download the checkpoint](https://github.com/KartikVashishta/grpo.cpp/releases/tag/countdown-a10) ·
+[Run the experiment](experiments/countdown/README.md#run-it)
 
-On a 24 GB A10, two native runs took 143 and 131 seconds, about five cents of
-estimated compute each. They scored 198/512 and 179/512 on the held-out test.
-TRL took 439 and 392 seconds and scored 183/512 and 199/512. Native was faster
-in both seeds, but the scores went either way. Costs exclude builds, startup,
-storage, network and the separate final test.
+| A10 run | Held-out success, before → after | Training time | Estimated compute |
+| --- | ---: | ---: | ---: |
+| Seed 42 | 5.1% → 38.7% | 143 s | $0.053 |
+| Seed 43 | 2.7% → 35.0% | 131 s | $0.048 |
 
-The [Countdown experiment](experiments/countdown/README.md) has the run
-commands, checkpoints, raw results and an answer viewer. Qwen's model and
-kernels come from a pinned revision of [RL.cu](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6).
+Each run makes 64 updates, then answers the same 512 held-out puzzles with one
+sample per puzzle. Times cover the complete training function, including saves
+and reload checks. Costs exclude builds, startup, storage, network and the
+separate final test.
 
 ![Countdown learning on A10](experiments/countdown/learning-a10.svg)
+
+About 3× faster than our TRL reference in this A10 experiment. Final scores
+favor different trainers in the two seeds. The reference uses Transformers
+generation without vLLM; precision and generated token counts differ.
+[Measurements and comparison conditions](experiments/countdown/README.md).
+
+Qwen's model and kernels come from a pinned revision of
+[RL.cu](https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6).
+This repo connects generation, GRPO updates, verification and checkpoints into
+the experiment. It also has a small CPU policy, CUDA loss kernels and GPT-2 examples.
 
 ## Build
 

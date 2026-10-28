@@ -6,10 +6,47 @@ from collections import Counter, defaultdict
 import html
 import json
 from pathlib import Path
+import re
 
 
 def read_lines(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def pair_answers(metrics, answers, runs):
+    """Join baseline and trained answers by puzzle, within each seed and trainer."""
+    paired = []
+    for after in metrics:
+        if after["step"] == 0:
+            continue
+        before = next(row for row in metrics if row["step"] == 0
+                      and (row["implementation"], row["seed"]) == (after["implementation"], after["seed"]))
+        rows = []
+        for metric in (before, after):
+            selected = [a for a in answers if a["run"] == metric["run"] and a["step"] == metric["step"]]
+            by_id = {a["id"]: a for a in selected}
+            if len(by_id) != len(selected):
+                raise ValueError(f"Duplicate final-test puzzle in {metric['run']}")
+            rows.append(by_id)
+        if not rows[0] or rows[0].keys() != rows[1].keys():
+            raise ValueError(f"Unpaired final-test puzzles in {after['run']}")
+        puzzles = []
+        for key, old in rows[0].items():
+            new = rows[1][key]
+            if (old["nums"], old["target"]) != (new["nums"], new["target"]):
+                raise ValueError(f"Puzzle changed: {key}")
+            outcome = {(False, True): "improved", (True, False): "regressed",
+                       (False, False): "still_wrong", (True, True): "still_correct"}[
+                           bool(old["reward"]), bool(new["reward"])]
+            puzzles.append({"id": key, "nums": old["nums"], "target": old["target"],
+                            "before": {k: old[k] for k in ("text", "status", "value", "reward")},
+                            "after": {k: new[k] for k in ("text", "status", "value", "reward")}, "outcome": outcome})
+        run = next(r for r in runs if r["name"] == after["run"])
+        paired.append({"name": after["run"], "seed": after["seed"], "step": after["step"],
+                       "label": f"{'grpo.cpp' if after['implementation'] == 'native' else 'TRL'} · seed {after['seed']}",
+                       "seconds": run["container"]["function_seconds"],
+                       "cost": run["container"]["estimated_compute_usd"], "puzzles": puzzles})
+    return paired
 
 
 def make_report(paths, output, benchmark=None, test=None):
@@ -115,7 +152,7 @@ def make_report(paths, output, benchmark=None, test=None):
             chart.legend(handles=legend, loc="upper left", bbox_to_anchor=(0, 1.02),
                          ncol=4, frameon=False, fontsize=9, borderaxespad=0,
                          handlelength=2, columnspacing=2)
-        ax.set(title="Accuracy vs. cost", xlabel="Estimated compute (USD)",
+        ax.set(title="Learning Countdown", xlabel="Estimated compute (USD)",
                ylabel="Development accuracy (%)", xlim=(0, max(p.get_xdata()[-1] for p in ax.lines)*1.12),
                ylim=(0, min(100, max(50, 10*np.ceil(highest/10) + 10))))
         ax.xaxis.set_major_formatter(StrMethodFormatter("${x:.2f}"))
@@ -128,7 +165,7 @@ def make_report(paths, output, benchmark=None, test=None):
         fig.set_size_inches(4.8, 4.8)
         ax.legend(handles=legend, loc="upper left", bbox_to_anchor=(0, 1.13),
                   ncol=2, frameon=False, fontsize=9, borderaxespad=0)
-        ax.set_title("Accuracy vs. cost", fontsize=16, pad=48)
+        ax.set_title("Learning Countdown", fontsize=16, pad=48)
         ax.xaxis.set_major_locator(MaxNLocator(4))
         fig.subplots_adjust(left=.15, right=.93, top=.72, bottom=.20)
         fig.texts[0].set_position((.15, .025))
@@ -189,6 +226,37 @@ def make_report(paths, output, benchmark=None, test=None):
         fig.subplots_adjust(left=.17, right=.92, top=.80, bottom=.24)
         save(fig, "fixed-work")
 
+    pairs = []
+    if test:
+        metrics = read_lines(test / "evaluations.jsonl")
+        answers = read_lines(test / "answers.jsonl")
+        pairs = pair_answers(metrics, answers, runs)
+        example = next((p for p in pairs if p["name"].startswith("native")), pairs[0])
+        categories = [("invalid", "Malformed / wrong numbers", "#dce2ea"),
+                      ("wrong_value", "Wrong value", "#8b99ae"), ("correct", "Correct", blue)]
+        fig, ax = plt.subplots(figsize=(10, 3.4))
+        for y, stage in enumerate(("before", "after")):
+            counts = Counter(p[stage]["status"] if p[stage]["status"] in ("wrong_value", "correct")
+                             else "invalid" for p in example["puzzles"])
+            left = 0
+            for key, label, color in categories:
+                value = counts[key]
+                ax.barh(y, value, left=left, height=.42, color=color, label=label if y == 0 else None)
+                if value:
+                    ax.text(left + value/2, y + (.37 if value < 15 else 0), str(value),
+                            ha="center", va="center", fontsize=10,
+                            color="white" if key != "invalid" and value >= 15 else "#253247")
+                left += value
+        ax.set(yticks=[0, 1], yticklabels=["Before", f"After {example['step']} updates"],
+               xlim=(0, len(example["puzzles"])), ylim=(1.65, -.7), xticks=[],
+               title="What changed in the answers")
+        ax.legend(loc="upper left", bbox_to_anchor=(0, 1.12), ncol=3, frameon=False,
+                  fontsize=9, borderaxespad=0, handlelength=1.2, columnspacing=2)
+        fig.subplots_adjust(left=.17, right=.96, top=.70, bottom=.12)
+        fig.text(.17, .03, f"{len(example['puzzles'])} held-out puzzles. {example['label']}. {context}.",
+                 fontsize=9, color=gray)
+        save(fig, "outcomes")
+
     images, details = [], []
     for path in figures:
         if path.stem == "learning-mobile":
@@ -216,15 +284,14 @@ def make_report(paths, output, benchmark=None, test=None):
                   f"<td>${run['container']['estimated_compute_usd']:.3f}</td>"
                   f"<td>{memory:.2f} GiB<br><small>{memory_label}</small></td></tr>")
     # Model output is untrusted text. Escape the script boundary and render with textContent.
-    viewed = [{k: r[k] for k in ("name", "answers")} for r in runs]
+    answer_fields = ("id", "nums", "target", "step", "text", "status", "value", "reward", "tokens", "eos")
+    viewed = [{"name": r["name"], "answers": [{k: a[k] for k in answer_fields} for a in r["answers"]]}
+              for r in runs]
     test_table = ""
     if test:
-        metrics = read_lines(test / "evaluations.jsonl")
-        answers = read_lines(test / "answers.jsonl")
         test_table = "<h2>Final test</h2><p class=note>512 puzzles, one sampled answer each. Models saved at update 64.</p>"
         test_table += "<div class=table-scroll><table><tr><th>Run / seed</th><th>Before → after</th><th>Gains</th><th>Regressions</th></tr>"
         for row in metrics:
-            viewed.append({"name": row["run"] + " · test", "answers": [a for a in answers if a["run"] == row["run"]]})
             if row["step"] == 0:
                 continue
             before = next(r for r in metrics if r["step"] == 0 and r["seed"] == row["seed"]
@@ -236,135 +303,14 @@ def make_report(paths, output, benchmark=None, test=None):
     benchmark_note = ("<p class=note>The fixed-batch check times 15 batches per implementation across three alternating rounds "
                       "after warmup. Weights stay fixed; generation and Adam are excluded. TRL includes entropy, clipping "
                       "metrics and one extra backbone position; native includes host copies.</p>" if benchmark else "")
-    payload = json.dumps(viewed).replace("<", "\\u003c")
-    page = '''<!doctype html><html lang="en"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Countdown</title>
-<style>
-* { box-sizing: border-box; }
-body { margin: 0 auto; padding: 56px 28px 64px; max-width: 1000px; color: #253247;
-       background: white; font: 15px/1.6 "Helvetica Neue", Arial, sans-serif; }
-header { margin-bottom: 28px; }
-h1 { margin: 0; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -1.4px; }
-header p { margin: 10px 0 0; color: #68758a; }
-h2 { margin: 0 0 8px; font-size: 23px; font-weight: 500; letter-spacing: -.4px; }
-p { margin: 0 0 20px; }
-img { display: block; width: 100%; height: auto; }
-.plot { overflow-x: auto; }
-section { margin-top: 48px; }
-.note { color: #68758a; font-size: 13px; max-width: 76ch; }
-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-th, td { padding: 14px 10px; text-align: right; border-bottom: 1px solid #e9edf2; white-space: nowrap; }
-th { color: #68758a; font-size: 12px; font-weight: 500; }
-th:first-child, td:first-child { text-align: left; padding-left: 0; }
-.table-scroll { overflow-x: auto; }
-details { margin-top: 32px; padding: 20px 0; border-block: 1px solid #e9edf2; }
-summary { cursor: pointer; font-size: 14px; color: #596579; }
-details[open] summary { margin-bottom: 28px; }
-details img { margin: 24px 0; }
-details .note { margin-top: 24px; }
-.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 24px; }
-.controls > div { display: grid; gap: 6px; }
-label { font-size: 13px; color: #596579; }
-select { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid #dce2ea;
-         border-radius: 6px; background: white; color: #253247; font: inherit; font-size: 15px; }
-.controls > .update { grid-column: 1 / -1; grid-template-columns: auto 1fr 28px; align-items: center; gap: 16px; }
-input { width: 100%; margin: 0; accent-color: #285cce; }
-:focus-visible { outline: 2px solid #285cce; outline-offset: 3px; }
-.answer { margin-top: 28px; }
-.answer strong { font-size: 13px; font-weight: 500; }
-.correct { color: #237956; } .failure { color: #9b4c36; }
-pre { margin: 10px 0 0; padding: 22px 24px; border-radius: 6px; background: #f5f7fb;
-      white-space: pre-wrap; overflow-wrap: anywhere; font: 24px/1.5 "SFMono-Regular", Consolas, monospace; }
-small { color: #68758a; }
-@media (max-width: 600px) {
-    body { padding: 28px 18px; }
-    h1 { font-size: 32px; }
-    .controls { grid-template-columns: 1fr; gap: 14px; }
-    th, td { padding: 12px 8px; font-size: 12px; }
-    pre { font-size: 20px; padding: 16px; }
-    img { min-width: 640px; }
-    picture img { min-width: 0; }
-}
-</style>
-<header><h1>Countdown</h1><p>CONTEXT</p></header>
-IMAGES
-FINALTEST
-<details><summary>Training details</summary>
-DETAILS
-<div class="table-scroll"><table>
-<thead><tr><th>Run</th><th>GPU</th><th>Status</th><th>Time</th><th>Compute</th><th>Memory</th></tr></thead>
-<tbody>TABLE</tbody></table></div>
-<p class="note">Costs use recorded GPU, CPU and RAM rates. Curves stop at each evaluation;
-the table includes loading, saving, reload checks and writing results. Builds, startup,
-storage and network are excluded.</p>
-<p class="note">Native memory is sampled device usage; TRL is peak reserved memory.
-Both are measured before reload. Native uses FP16 compute; TRL uses BF16 with FP32 parameters
-and its tiled head. Sampling RNGs differ. Two seeds do not establish equal learning quality.</p>
-<p class="note">Calibration records eight answers per puzzle; development and test record one.
-Token counts include EOS.</p>
-BENCHMARKNOTE
-</details>
-<section><h2>Saved answers</h2>
-<div class="controls">
-<div><label for="run">Run</label><select id="run"></select></div>
-<div><label for="puzzle">Puzzle</label><select id="puzzle"></select></div>
-<div class="update"><label for="step">Update</label><input id="step" type="range" min="0" value="0"><output id="step-label" for="step"></output></div>
-</div><div id="answers"></div>
-</section>
-<script>const runs=PAYLOAD;
-const run = document.getElementById('run');
-const puzzle = document.getElementById('puzzle');
-const step = document.getElementById('step');
-for (const [i, r] of runs.entries()) run.add(new Option(r.name, i));
-
-function selectRun() {
-    puzzle.replaceChildren();
-    const unique = new Map(runs[run.value].answers.map(a => [a.id, a]));
-    for (const a of unique.values()) {
-        puzzle.add(new Option(a.nums.join(', ') + ' → ' + a.target, a.id));
-    }
-    selectPuzzle();
-}
-
-function selectPuzzle() {
-    const rows = runs[run.value].answers.filter(a => a.id === puzzle.value);
-    const steps = [...new Set(rows.map(a => a.step))].sort((a, b) => a - b);
-    step.max = steps.length - 1;
-    step.value = 0;
-    render();
-}
-
-function render() {
-    const rows = runs[run.value].answers.filter(a => a.id === puzzle.value);
-    const steps = [...new Set(rows.map(a => a.step))].sort((a, b) => a - b);
-    const selected = steps[step.value];
-    step.setAttribute('aria-valuetext', String(selected));
-    document.getElementById('step-label').textContent = ' ' + selected;
-    const box = document.getElementById('answers');
-    box.replaceChildren();
-    for (const a of rows.filter(a => a.step === selected)) {
-        const item = document.createElement('div');
-        item.className = 'answer';
-        const status = document.createElement('strong');
-        status.className = a.reward ? 'correct' : 'failure';
-        status.textContent = a.status.replaceAll('_', ' ') + ' · value ' + (a.value ?? '—')
-            + ' · ' + a.tokens + ' tokens · ' + (a.eos ? 'EOS' : 'cap');
-        const expression = document.createElement('pre');
-        expression.textContent = a.text;
-        item.append(status, expression);
-        box.append(item);
-    }
-}
-
-run.onchange = selectRun;
-puzzle.onchange = selectPuzzle;
-step.oninput = render;
-selectRun();</script></html>'''
-    (output / "report.html").write_text(page.replace("TABLE", table).replace("IMAGES", "".join(images))
-                                       .replace("DETAILS", "".join(details)).replace("CONTEXT", html.escape(context))
-                                       .replace("BENCHMARKNOTE", benchmark_note)
-                                       .replace("FINALTEST", f"<section>{test_table}</section>" if test_table else "")
-                                       .replace("PAYLOAD", payload))
+    page = Path(__file__).with_name("viewer.html").read_text()
+    replacements = {"TABLE": table, "IMAGES": "".join(images), "DETAILS": "".join(details),
+                    "CONTEXT": html.escape(context), "BENCHMARKNOTE": benchmark_note,
+                    "FINALTEST": f"<section>{test_table}</section>" if test_table else "",
+                    "PAYLOAD": json.dumps(viewed).replace("<", "\\u003c"),
+                    "PAIRS": json.dumps(pairs).replace("<", "\\u003c")}
+    page = re.sub(r"\{\{([A-Z]+)\}\}", lambda match: replacements[match[1]], page)
+    (output / "report.html").write_text(page)
     return output / "report.html"
 
 

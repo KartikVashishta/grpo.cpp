@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Learning Countdown · grpo.cpp</title>
+<link rel="icon" href="data:,">
+<meta name="description" content="Recorded Qwen3-0.6B answers before and after 64 native C++/CUDA training updates. Browse the improvements, regressions and remaining failures.">
+<meta property="og:title" content="Learning Countdown with grpo.cpp">
+<meta property="og:description" content="Qwen3-0.6B, 64 updates, about five cents of estimated A10 training compute. Inspect the recorded answers.">
+<meta property="og:image" content="https://kartikvashishta.github.io/grpo.cpp/social.png">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0 auto; padding: 28px 32px 60px; max-width: 1060px; color: #253247;
+       background: white; font: 15px/1.6 "Helvetica Neue", Arial, sans-serif; }
+a { color: #285cce; text-underline-offset: 4px; }
+nav { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 44px; }
+nav > a { color: inherit; font-size: 20px; font-weight: 600; text-decoration: none; }
+nav div { display: flex; gap: 22px; font-size: 13px; }
+h1 { margin: 0; font-size: clamp(32px, 5vw, 46px); line-height: 1.15; font-weight: 600; letter-spacing: -1.5px; }
+header p { margin: 12px 0 0; color: #68758a; }
+h2 { margin: 0 0 8px; font-size: 23px; font-weight: 500; letter-spacing: -.4px; }
+p { margin: 0 0 20px; }
+img { display: block; width: 100%; height: auto; }
+.plot { overflow-x: auto; margin-top: 32px; }
+section { margin-top: 42px; }
+.note { color: #68758a; font-size: 13px; max-width: 80ch; }
+.puzzle-heading { display: flex; align-items: baseline; gap: 12px; margin: 26px 0 22px; }
+.puzzle-heading span { color: #68758a; font-size: 14px; }
+.numbers { display: flex; gap: 8px; margin-right: auto; }
+.numbers b { padding: 3px 15px; background: #eef3fc; border-radius: 5px; font-size: 29px; font-weight: 500; }
+#target { font-size: 36px; font-weight: 500; line-height: 1; }
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.comparison article { min-width: 0; background: #f5f7fb; border-radius: 8px; padding: 22px 24px; }
+.comparison h2 { font-size: 13px; color: #596579; letter-spacing: 0; }
+.comparison pre { min-height: 60px; margin: 22px 0 18px; padding: 0; font-size: 27px; background: transparent; }
+.comparison p { margin: 0; font-size: 13px; }
+.correct { color: #237956; } .failure { color: #9b4c36; }
+.browse { display: flex; align-items: flex-end; gap: 16px; margin-top: 20px; }
+.browse > div { display: grid; gap: 5px; }
+.browse .filter { flex: 1; }
+.browse label { font-size: 12px; }
+.browse output { white-space: nowrap; font-size: 13px; color: #596579; align-self: center; padding-top: 22px; }
+button, select { min-height: 42px; padding: 9px 12px; border: 1px solid #dce2ea; border-radius: 6px;
+                 background: white; color: #253247; font: inherit; font-size: 14px; }
+button { cursor: pointer; }
+button:hover { background: #f0f4fb; }
+button:disabled { cursor: default; opacity: .4; }
+button#next { color: #285cce; border-color: #b9cdf2; }
+.results { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 24px; font-variant-numeric: tabular-nums; }
+.results b { font-weight: 500; color: #253247; }
+.results span { color: #68758a; }
+#paired > .note { margin: 10px 0 0; font-size: 12px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 14px 10px; text-align: right; border-bottom: 1px solid #e9edf2; white-space: nowrap; }
+th { color: #68758a; font-size: 12px; font-weight: 500; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+.table-scroll { overflow-x: auto; }
+details { margin-top: 32px; padding: 20px 0; border-block: 1px solid #e9edf2; }
+summary { cursor: pointer; font-size: 14px; color: #596579; }
+details[open] summary { margin-bottom: 28px; }
+details img { margin: 24px 0; }
+details .note { margin-top: 24px; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 24px; }
+.controls > div { display: grid; gap: 6px; }
+label { font-size: 13px; color: #596579; }
+select { width: 100%; min-width: 0; }
+.controls > .update { grid-column: 1 / -1; grid-template-columns: auto 1fr 28px; align-items: center; gap: 16px; }
+input { width: 100%; margin: 0; accent-color: #285cce; }
+:focus-visible { outline: 2px solid #285cce; outline-offset: 3px; }
+.answer { margin-top: 28px; }
+.answer strong { font-size: 13px; font-weight: 500; }
+pre { margin: 10px 0 0; padding: 22px 24px; border-radius: 6px; background: #f5f7fb;
+      white-space: pre-wrap; overflow-wrap: anywhere; font: 24px/1.5 "SFMono-Regular", Consolas, monospace; }
+small, footer { color: #68758a; }
+footer { margin-top: 48px; font-size: 12px; }
+[hidden] { display: none !important; }
+@media (max-width: 600px) {
+    body { padding: 20px 18px 36px; }
+    nav { margin-bottom: 30px; }
+    nav div { gap: 12px; font-size: 12px; }
+    nav > a { font-size: 17px; }
+    header p { font-size: 13px; }
+    section { margin-top: 30px; }
+    .puzzle-heading { gap: 8px; }
+    .numbers { gap: 5px; }
+    .numbers b { font-size: 22px; padding: 3px 10px; }
+    #target { font-size: 28px; }
+    .comparison { gap: 10px; }
+    .comparison article { padding: 15px 12px; }
+    .comparison pre { font-size: 18px; min-height: 80px; margin: 18px 0 12px; }
+    .comparison p { font-size: 12px; }
+    .browse { flex-wrap: wrap; gap: 12px; }
+    .browse > div, .browse .filter { flex: 1 1 calc(50% - 6px); min-width: 0; }
+    .browse output { margin-right: auto; padding-top: 0; }
+    .results { gap: 5px 16px; font-size: 13px; }
+    .controls { grid-template-columns: 1fr; gap: 14px; }
+    th, td { padding: 12px 8px; font-size: 12px; }
+    pre { font-size: 20px; padding: 16px; }
+    img { min-width: 640px; }
+    picture img { min-width: 0; }
+}
+</style>
+</head>
+<body>
+<nav><a href="https://github.com/KartikVashishta/grpo.cpp">grpo.cpp</a><div>
+<a href="https://github.com/KartikVashishta/grpo.cpp/tree/main/experiments/countdown#run-it">Reproduce</a>
+<a href="https://github.com/KartikVashishta/grpo.cpp/releases/tag/countdown-a10">A10 checkpoint</a>
+</div></nav>
+<header><h1>Learning Countdown</h1><p>{{CONTEXT}}. Recorded answers, before and after training.</p></header>
+<section id="paired" hidden aria-label="Before and after training">
+<div class="puzzle-heading"><span>Use</span><div id="numbers" class="numbers"></div><span>to make</span><b id="target"></b></div>
+<div class="comparison" aria-live="polite" aria-atomic="true">
+<article><h2>Before training</h2><pre id="before-answer"></pre><p id="before-verdict"></p></article>
+<article><h2 id="after-heading">After training</h2><pre id="after-answer"></pre><p id="after-verdict"></p></article>
+</div>
+<div class="browse">
+<div><label for="compare-run">Trainer / seed</label><select id="compare-run"></select></div>
+<div class="filter"><label for="filter">Answers</label><select id="filter">
+<option value="all">All puzzles</option><option value="improved">Improved</option>
+<option value="regressed">Regressed</option><option value="still_wrong">Still wrong</option>
+<option value="still_correct">Still correct</option></select></div>
+<output id="position" aria-live="polite"></output>
+<button id="previous" type="button" aria-label="Previous puzzle">Previous</button>
+<button id="next" type="button" aria-label="Next puzzle">Next puzzle</button>
+</div>
+<div id="results" class="results"></div>
+<p class="note">One sampled answer per puzzle. Training time and estimated compute include saves and reload checks;
+builds, startup, storage, network and the separate final test are excluded.</p>
+</section>
+<noscript><p>This page uses JavaScript to browse the recorded answers. The plots and final-test table are below.</p></noscript>
+{{IMAGES}}
+{{FINALTEST}}
+<details><summary>Training details</summary>
+{{DETAILS}}
+<div class="table-scroll"><table>
+<thead><tr><th>Run</th><th>GPU</th><th>Status</th><th>Time</th><th>Compute</th><th>Memory</th></tr></thead>
+<tbody>{{TABLE}}</tbody></table></div>
+<p class="note">Costs use recorded GPU, CPU and RAM rates. Curves stop at each evaluation;
+the table includes loading, saving, reload checks and writing results. Builds, startup,
+storage and network are excluded.</p>
+<p class="note">Native memory is sampled device usage; TRL is peak reserved memory.
+Both are measured before reload. Native uses FP16 compute; TRL uses BF16 with FP32 parameters
+and its tiled head. TRL uses Transformers generation without vLLM. Sampling RNGs differ.
+Two seeds do not establish equal learning quality.</p>
+{{BENCHMARKNOTE}}
+</details>
+<details><summary>Answers during training</summary>
+<p class="note">Development puzzles at each saved update. Calibration records eight answers per puzzle;
+development records one. Token counts include EOS.</p>
+<div class="controls">
+<div><label for="run">Run</label><select id="run"></select></div>
+<div><label for="puzzle">Puzzle</label><select id="puzzle"></select></div>
+<div class="update"><label for="step">Update</label><input id="step" type="range" min="0" value="0"><output id="step-label" for="step"></output></div>
+</div><div id="answers"></div>
+</details>
+<footer>Model and kernels from <a href="https://github.com/KJLdefeated/RL.cu/tree/77ecd8385d9836bc8377e042f4e2b7dd0b6df9c6">RL.cu</a>.
+<a href="https://github.com/KartikVashishta/grpo.cpp/blob/main/experiments/countdown/README.md">Method and raw results</a>.</footer>
+<script>
+const pairs = {{PAIRS}};
+const runs = {{PAYLOAD}};
+const compareRun = document.getElementById('compare-run');
+const filter = document.getElementById('filter');
+let selectedPuzzles = [];
+let position = 0;
+
+function verdict(answer) {
+    if (answer.status === 'correct') return 'Correct · ' + answer.value;
+    if (answer.status === 'wrong_value') return 'Incorrect · ' + answer.value;
+    return {wrong_numbers: 'Incorrect · wrong numbers', parse_error: 'Incorrect · malformed expression',
+            division_by_zero: 'Incorrect · division by zero'}[answer.status] || answer.status.replaceAll('_', ' ');
+}
+
+function showPair() {
+    const data = pairs[compareRun.value];
+    const puzzle = selectedPuzzles[position];
+    document.getElementById('previous').disabled = !position;
+    document.getElementById('next').disabled = position >= selectedPuzzles.length - 1;
+    document.getElementById('position').textContent = selectedPuzzles.length ? `${position + 1} / ${selectedPuzzles.length}` : 'No puzzles';
+    document.getElementById('numbers').replaceChildren();
+    for (const n of puzzle?.nums || []) {
+        const number = document.createElement('b');
+        number.textContent = n;
+        document.getElementById('numbers').append(number);
+    }
+    document.getElementById('target').textContent = puzzle?.target ?? '—';
+    document.getElementById('after-heading').textContent = `After ${data.step} updates`;
+    for (const stage of ['before', 'after']) {
+        const answer = puzzle?.[stage];
+        document.getElementById(stage + '-answer').textContent = answer?.text ?? 'No puzzles in this group.';
+        const label = document.getElementById(stage + '-verdict');
+        label.textContent = answer ? verdict(answer) : '';
+        label.className = answer?.reward ? 'correct' : 'failure';
+    }
+}
+
+function selectPairs(initial = false) {
+    const data = pairs[compareRun.value];
+    selectedPuzzles = data.puzzles.filter(p => filter.value === 'all' || p.outcome === filter.value);
+    position = initial ? Math.max(0, selectedPuzzles.findIndex(p => p.id === '26,79,99:46')) : 0;
+    const results = document.getElementById('results');
+    results.replaceChildren();
+    const count = data.puzzles.length;
+    const before = data.puzzles.filter(p => p.before.reward).length;
+    const after = data.puzzles.filter(p => p.after.reward).length;
+    const metrics = [
+        [`${(before/count*100).toFixed(1)}% → ${(after/count*100).toFixed(1)}%`, ` correct on ${count} held-out puzzles`],
+        [`${data.seconds.toFixed(0)} s`, ' training'], [`$${data.cost.toFixed(3)}`, ' estimated compute']
+    ];
+    for (const [value, name] of metrics) {
+        const item = document.createElement('span');
+        const strong = document.createElement('b');
+        strong.textContent = value;
+        item.append(strong, name);
+        results.append(item);
+    }
+    showPair();
+}
+
+if (pairs.length) {
+    document.getElementById('paired').hidden = false;
+    for (const [i, pair] of pairs.entries()) compareRun.add(new Option(pair.label.replace(' · seed ', ' / '), i));
+    compareRun.onchange = () => selectPairs();
+    filter.onchange = () => selectPairs();
+    document.getElementById('previous').onclick = () => { position--; showPair(); };
+    document.getElementById('next').onclick = () => { position++; showPair(); };
+    selectPairs(true);
+}
+
+const run = document.getElementById('run');
+const puzzle = document.getElementById('puzzle');
+const step = document.getElementById('step');
+for (const [i, r] of runs.entries()) run.add(new Option(r.name, i));
+
+function selectRun() {
+    puzzle.replaceChildren();
+    const unique = new Map(runs[run.value].answers.map(a => [a.id, a]));
+    for (const a of unique.values()) puzzle.add(new Option(a.nums.join(', ') + ' → ' + a.target, a.id));
+    selectPuzzle();
+}
+
+function selectPuzzle() {
+    const rows = runs[run.value].answers.filter(a => a.id === puzzle.value);
+    const steps = [...new Set(rows.map(a => a.step))].sort((a, b) => a - b);
+    step.max = steps.length - 1;
+    step.value = 0;
+    render();
+}
+
+function render() {
+    const rows = runs[run.value].answers.filter(a => a.id === puzzle.value);
+    const steps = [...new Set(rows.map(a => a.step))].sort((a, b) => a - b);
+    const selected = steps[step.value];
+    step.setAttribute('aria-valuetext', String(selected));
+    document.getElementById('step-label').textContent = selected;
+    const box = document.getElementById('answers');
+    box.replaceChildren();
+    for (const a of rows.filter(a => a.step === selected)) {
+        const item = document.createElement('div');
+        item.className = 'answer';
+        const status = document.createElement('strong');
+        status.className = a.reward ? 'correct' : 'failure';
+        status.textContent = verdict(a) + ' · ' + a.tokens + ' tokens · ' + (a.eos ? 'EOS' : 'cap');
+        const expression = document.createElement('pre');
+        expression.textContent = a.text;
+        item.append(status, expression);
+        box.append(item);
+    }
+}
+
+run.onchange = selectRun;
+puzzle.onchange = selectPuzzle;
+step.oninput = render;
+selectRun();
+</script>
+</body>
+</html>

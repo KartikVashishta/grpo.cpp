@@ -13,7 +13,7 @@ ROOT = HERE.parent.parent if modal.is_local() else Path("/src")
 DATA = ROOT / "runs/countdown/data" if modal.is_local() else Path("/data")
 app = modal.App("grpo-native")
 RATES = {"L4": .000222, "A10": .000306, "H100": .001097}
-volume = modal.Volume.from_name("grpo-countdown")
+volume = modal.Volume.from_name("grpo-countdown", create_if_missing=True)
 image = (modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu24.04", add_python="3.11")
          .apt_install("cmake", "ninja-build", "g++", "patch", "ca-certificates")
          .pip_install_from_requirements(str(HERE / "requirements.lock"))

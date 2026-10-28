@@ -1,0 +1,50 @@
+name: Countdown demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - experiments/countdown/report.py
+      - experiments/countdown/viewer.html
+      - experiments/countdown/results.tar.gz
+      - experiments/countdown/social.png
+      - .github/workflows/demo.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install matplotlib==3.10.8
+      - name: Build from recorded results
+        run: |
+          mkdir -p runs/countdown site
+          tar -xzf experiments/countdown/results.tar.gz -C runs/countdown
+          python experiments/countdown/report.py \
+            runs/countdown/native-a10-01 runs/countdown/reference-a10-01 \
+            runs/countdown/native-a10-02 runs/countdown/reference-a10-02 \
+            --test runs/countdown/test-a10-01 --output site
+          mv site/report.html site/index.html
+          cp experiments/countdown/social.png site/social.png
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment

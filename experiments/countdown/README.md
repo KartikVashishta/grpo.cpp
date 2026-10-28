@@ -1,5 +1,8 @@
 # Countdown
 
+[Browse the recorded answers](https://kartikvashishta.github.io/grpo.cpp/) ·
+[Download the checkpoint](https://github.com/KartikVashishta/grpo.cpp/releases/tag/countdown-a10)
+
 Qwen3-0.6B learns to solve three-number Countdown. The training runs below start
 from the same model and finish 64 updates. The data splits, verifier and sampling
 settings are fixed; prompt order matches within each seed.
@@ -56,6 +59,12 @@ about 10.27 GiB; TRL's peak reserved memory was 11.99 GiB. These are different
 memory measures, though both trainers fit the 24 GB card.
 Modal supplied an A10G for TRL seed 42 and A10s for the other runs.
 
+![Answer outcomes before and after native training, seed 42](outcomes-a10.svg)
+
+Most of the early failures are malformed expressions or wrong input numbers.
+After training, almost all answers follow those rules, but many still miss
+the target. The viewer includes improvements, regressions and remaining failures.
+
 <details>
 <summary>H100 comparison</summary>
 
@@ -106,16 +115,26 @@ below.
 
 ## Run it
 
-From the repository root:
+Install [Git](https://git-scm.com/downloads) and [uv](https://docs.astral.sh/uv/getting-started/installation/),
+and create a [Modal account](https://modal.com/). CUDA and the GPU dependencies
+are installed remotely; you do not need a local GPU.
 
 ```bash
+git clone https://github.com/KartikVashishta/grpo.cpp.git
+cd grpo.cpp
+uv venv --python 3.11
+source .venv/bin/activate
+uv pip install modal==1.6.2 pyarrow==24.0.0
+modal setup
 python3 -m unittest discover -s tests -p 'test_countdown.py' -v
-uv run --with pyarrow==24.0.0 python experiments/countdown/prepare.py
+python experiments/countdown/prepare.py
 modal run experiments/countdown/native_run.py --build-only
 modal run experiments/countdown/native_run.py --mode train --gpu A10 --run-id native-01
 ```
 
-This uses the saved seed-42 reference prompt order. Add
+The runner creates `grpo-countdown` in your active Modal environment. Each run
+needs a new ID. This uses the seed-42 prompt order from the bundled results;
+there is no prerequisite TRL run. Add
 `--reference-run reference-a10-02` for seed 43, or supply a fresh reference run
 saved locally and in the Modal volume. To run that reference yourself:
 
@@ -198,7 +217,8 @@ uv run --with matplotlib==3.10.8 python experiments/countdown/report.py \
 You can pass just the calibration directory before a training run exists.
 The report saves SVG and PNG figures beside `report.html`. Each line shows
 one seed's sampled development pass@1. Timing, completion length and measurement
-notes are under “Training details” in the report.
+notes are under “Training details” in the report. With `--test`, the page opens
+on paired final-test answers. Intermediate development answers keep their update slider.
 
 The measurements and raw answers are in `results.tar.gz`.
 To redraw these figures without a GPU:
@@ -232,14 +252,33 @@ Pass `--test runs/countdown/test-01` to the report to browse those answers.
 Native saves at updates 16, 32, 48 and the end; TRL also writes a periodic
 checkpoint at 64 before its final save. Total times include that work.
 
-Download the trained native checkpoint:
+## Try the published checkpoint
+
+The [release](https://github.com/KartikVashishta/grpo.cpp/releases/tag/countdown-a10)
+contains `native-a10-01` after 64 updates, its license and SHA-256 checksums.
+The download is about 1.92 GB and needs about 2.4 GB after extraction.
+No Modal account is needed.
 
 ```bash
 mkdir -p runs/countdown/native-a10-01
-modal volume get grpo-countdown native-a10-01/final runs/countdown/native-a10-01
+curl -fL -o runs/countdown/native-a10-01/checkpoint.tar.gz \
+  https://github.com/KartikVashishta/grpo.cpp/releases/download/countdown-a10/countdown-native-a10-01.tar.gz
+tar -xzf runs/countdown/native-a10-01/checkpoint.tar.gz -C runs/countdown/native-a10-01
+uv run --python 3.11 --with torch==2.14.1 --with transformers==5.21.0 \
+  python experiments/countdown/sample.py runs/countdown/native-a10-01/final \
+  --numbers 26 79 99 --target 46
 ```
 
-The model and tokenizer files land in `runs/countdown/native-a10-01/final/`.
+The sampler uses CUDA, Apple Silicon or CPU, whichever is available. It applies
+the training prompt and prints the verifier's verdict. New samples may differ
+from the recorded demo. See the [checkpoint notes](checkpoint.md) for model identity.
+
+To download a checkpoint from a run in your own Modal workspace:
+
+```bash
+mkdir -p runs/countdown/native-01
+modal volume get grpo-countdown native-01/final runs/countdown/native-01
+```
 
 <details>
 <summary>Model checks</summary>
